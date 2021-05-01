@@ -3,7 +3,7 @@ use crate::config::{Committee, Parameters};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::leader::LeaderElector;
 use crate::mempool::{MempoolDriver, NodeMempool};
-use crate::messages::{Block, Timeout, Vote, QC, TC};
+use crate::messages::{Block, Timeout, Vote1, Vote2, QC, TC};
 use crate::synchronizer::Synchronizer;
 use crate::timer::Timer;
 use async_recursion::async_recursion;
@@ -23,11 +23,13 @@ use tokio::time::{sleep, Duration};
 pub mod core_tests;
 
 pub type RoundNumber = u64;
+pub type Depth = u64;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum CoreMessage {
     Propose(Block),
-    Vote(Vote),
+    Vote1(Vote1),
+    Vote2(Vote2),
     Timeout(Timeout),
     TC(TC),
     LoopBack(Block),
@@ -46,9 +48,10 @@ pub struct Core<Mempool> {
     core_channel: Receiver<CoreMessage>,
     network_channel: Sender<NetMessage>,
     commit_channel: Sender<Block>,
-    round: RoundNumber,
+    round: RoundNumber, // current round number
     last_voted_round: RoundNumber,
-    high_qc: QC,
+    vote1_qc: QC,
+    vote2_qc: QC,
     timer: Timer<RoundNumber>,
     aggregator: Aggregator,
 }
@@ -83,7 +86,8 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             core_channel,
             round: 1,
             last_voted_round: 0,
-            high_qc: QC::genesis(),
+            vote1_qc: QC::genesis(),
+            vote2_qc: QC::genesis(),
             timer: Timer::new(),
             aggregator,
         }
@@ -129,7 +133,43 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         self.last_voted_round = max(self.last_voted_round, target);
     }
 
-    async fn make_vote(&mut self, block: &Block) -> Option<Vote> {
+    async fn make_vote1(&mut self, block: &Block) -> Option<Vote1> {
+        // Check if we can vote for this block, aka propose
+
+        // Condition1: node in same round as block
+        let safety_rule_in_same_round = block.round == self.round;        
+        
+        // Condition2: did not vote1 for this round before
+        let safety_rule_no_equivocate_in_round = block.round > self.last_voted_round;
+
+        // Condition3: block contains correct QC for parent block
+        // Note block already verified in handle proposal
+        // or is verified already in generate proposal
+        let mut safety_rule_right_parent_qc = block.qc.round + 1 == block.round;
+
+        // Condition3.1: if block contain TC, should be correct
+        //               as in TC round is correct, timeout rounds should be correct 
+        //               and proposed value should follow TC timeouts
+        // Note TC also verified when block is verified
+        if let Some(ref tc) = block.tc {
+            let mut can_extend = tc.round + 1 == block.round;
+            can_extend &= block.qc.round >= *tc.high_qc_rounds().iter().max().expect("Empty TC");
+            safety_rule_right_parent_qc |= can_extend;
+        }
+
+        // Actual check
+        if !(safety_rule_no_equivocate_in_round && safety_rule_right_parent_qc) {
+            return None;
+        }
+
+        // Maintain condition2 to ensure we won't vote for contradicting blocks.
+        self.increase_last_voted_round(block.round);
+
+        // TODO [issue #15]: Write to storage preferred_round and last_voted_round.
+        Some(Vote::new(&block, self.name, self.signature_service.clone()).await)
+    }
+
+    async fn make_vote2(&mut self, block: &Block) -> Option<Vote2> {
         // Check if we can vote for this block.
         let safety_rule_1 = block.round > self.last_voted_round;
         let mut safety_rule_2 = block.qc.round + 1 == block.round;
@@ -147,6 +187,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // TODO [issue #15]: Write to storage preferred_round and last_voted_round.
         Some(Vote::new(&block, self.name, self.signature_service.clone()).await)
     }
+
     // -- End Safety Module --
 
     // -- Start Pacemaker --
@@ -254,7 +295,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             .get(self.parameters.max_payload_size)
             .await;
         let block = Block::new(
-            self.high_qc.clone(),
+            self.vote2_qc.clone(),
             tc,
             self.name,
             self.round,
@@ -291,53 +332,57 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     async fn process_block(&mut self, block: &Block) -> ConsensusResult<()> {
         debug!("Processing {:?}", block);
 
-        // Let's see if we have the last three ancestors of the block, that is:
-        //      b0 <- |qc0; b1| <- |qc1; b2| <- |qc2; block|
-        // If we don't, the synchronizer asks for them to other nodes. It will
-        // then ensure we process all three ancestors in the correct order, and
+        // Let's see if we have the parent of the block, that is:
+        //          |...;parent| <- |parent QC; block|
+        // If we don't, the synchronizer asks for it from other nodes. It will
+        // then ensure we process the ancestors in the correct order (NEEDTOCHECKTHIS), and
         // finally make us resume processing this block.
-        let (b0, b1) = match self.synchronizer.get_ancestors(block).await? {
-            Some(ancestors) => ancestors,
+        let parent = match self.synchronizer.get_ancestor(block).await? {
+            Some(ancestor) => ancestor,
             None => {
                 debug!("Processing of {} suspended: missing parent", block.digest());
                 return Ok(());
             }
         };
 
-        // Store the block only if we have already processed all its ancestors.
+        // Store the block only if we have already processed all the ancestors.
         self.store_block(block).await?;
 
-        // Cleanup the mempool.
-        self.mempool_driver.cleanup(&b0, &b1).await;
+        // Cleanup the mempool. ??????????????
+        self.mempool_driver.cleanup(&parent).await;
 
-        // Check if we can commit the head of the 2-chain.
-        // Note that we commit blocks only if we have all its ancestors.
-        let mut commit_rule = b0.round + 1 == b1.round;
-        commit_rule &= b1.round + 1 == block.round;
-        if commit_rule {
-            if !b0.payload.is_empty() {
-                info!("Committed {}", b0);
-
-                #[cfg(feature = "benchmark")]
-                for x in &b0.payload {
-                    info!("Committed B{}({})", b0.round, base64::encode(x));
-                }
-            }
-            debug!("Committed {:?}", b0);
-            if let Err(e) = self.commit_channel.send(b0.clone()).await {
-                warn!("Failed to send block through the commit channel: {}", e);
-            }
-        }
+        // Check if we can commit the parent block
+        // Note it is possible that we have already committed the parent block
+        // (TODO: need to modify it to instead commit the parent
+        //  but this will be more for convenience)
+        //let mut commit_rule = b0.round + 1 == b1.round;
+        //commit_rule &= b1.round + 1 == block.round;
+        //if commit_rule {
+        //    if !b0.payload.is_empty() {
+        //        info!("Committed {}", b0);
+        //
+        //        #[cfg(feature = "benchmark")]
+        //        for x in &b0.payload {
+        //            info!("Committed B{}({})", b0.round, base64::encode(x));
+        //        }
+        //    }
+        //    debug!("Committed {:?}", b0);
+        //    if let Err(e) = self.commit_channel.send(b0.clone()).await {
+        //        warn!("Failed to send block through the commit channel: {}", e);
+        //    }
+        //}
 
         // Ensure the block's round is as expected.
         // This check is important: it prevents bad leaders from producing blocks
         // far in the future that may cause overflow on the round number.
+        // TODO: think about if in pbft nodes may not reach the proposal round
+        //       before the leader sendes out the block for new round
         if block.round != self.round {
             return Ok(());
         }
 
         // See if we can vote for this block.
-        if let Some(vote) = self.make_vote(block).await {
+        if let Some(vote) = self.make_vote1(block).await {
             debug!("Created {:?}", vote);
             let next_leader = self.leader_elector.get_leader(self.round + 1);
             if next_leader == self.name {
@@ -423,9 +468,10 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                 Some(message) = self.core_channel.recv() => {
                     match message {
                         CoreMessage::Propose(block) => self.handle_proposal(&block).await,
-                        CoreMessage::Vote(vote) => self.handle_vote(&vote).await,
+                        CoreMessage::Vote1(vote) => self.handle_vote1(&vote).await,
+                        CoreMessage::Vote2(vote) => self.handle_vote2(&vote).await,
                         CoreMessage::Timeout(timeout) => self.handle_timeout(&timeout).await,
-                        CoreMessage::TC(tc) => self.handle_tc(tc).await,
+                        //CoreMessage::TC(tc) => self.handle_tc(tc).await,
                         CoreMessage::LoopBack(block) => self.process_block(&block).await,
                         CoreMessage::SyncRequest(digest, sender) => self.handle_sync_request(digest, sender).await
                     }

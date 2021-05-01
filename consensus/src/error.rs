@@ -53,6 +53,12 @@ pub enum ConsensusError {
     #[error("Malformed block {0}")]
     MalformedBlock(Digest),
 
+    #[error("Malformed timeout {0}")]
+    MalformedTimeout(Digest),
+
+    #[error("Mismatch round number, in TC:{0} <-> in Timeout:{1}")]
+    MismatchTCTimeout(RoundNumber, RoundNumber),
+
     #[error("Received block {digest} from leader {leader} at round {round}")]
     WrongLeader {
         digest: Digest,
