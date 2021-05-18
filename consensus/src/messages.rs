@@ -74,6 +74,17 @@ impl Block {
         }
         Ok(())
     }
+
+    // Timeout propose/block has different round number than new propose in new round
+    // Need to update before checking if they are the same
+    pub fn has_same_propose_val(&self, block: &Block) -> bool {
+        let mut cand_block = block.clone();
+        cand_block.round = self.round;
+        if cand_block.digest() == self.digest() {
+            return true;
+        }
+        false
+    }
 }
 
 impl Hash for Block {
@@ -171,13 +182,14 @@ pub struct Vote2 {
 
 impl Vote2 {
     pub async fn new(
-        block: &Block,
+        digest: Digest,
+        round: RoundNumber,
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
         let vote2 = Self {
-            hash: block.digest(),
-            round: block.round,
+            hash: digest,
+            round,
             author,
             signature: Signature::default(),
         };
@@ -369,6 +381,7 @@ impl TC {
             ensure!(self.round == timeout.round, ConsensusError::MismatchTCTimeout(self.round, timeout.round));
 
             // Check timeout locked round smaller than or equal to round number
+            ensure!(timeout.locked_block.round <= self.round, ConsensusError::MalformedTimeout(timeout.digest()));
 
             // Check no reuse of timeouts
             ensure!(!used.contains(name), ConsensusError::AuthorityReuse(*name));
@@ -391,6 +404,16 @@ impl TC {
 
     pub fn high_qc_rounds(&self) -> Vec<RoundNumber> {
         self.timeouts.iter().map(|timeout| &timeout.locked_block.round).cloned().collect()
+    }
+
+    pub fn highest_timeout(&self) -> Option<Timeout> {
+        let highest_tc = *self.high_qc_rounds().iter().max().expect("Empty TC");
+        for timeout in self.timeouts.iter() {
+            if timeout.locked_block.round == highest_tc {
+                return Some(timeout.clone());
+            }
+        }
+        None
     }
 }
 
