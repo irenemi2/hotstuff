@@ -13,9 +13,12 @@ use std::fmt;
 #[path = "tests/messages_tests.rs"]
 pub mod messages_tests;
 
+pub type VoteType = u32;
+// Vote1: 1, Vote2: 2,
+
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Block {
-    pub qc: QC,
+    pub qc: Option<QC>,
     pub tc: Option<TC>,
     pub author: PublicKey,
     pub round: RoundNumber,
@@ -25,7 +28,7 @@ pub struct Block {
 
 impl Block {
     pub async fn new(
-        qc: QC,
+        qc: Option<QC>,
         tc: Option<TC>,
         author: PublicKey,
         round: RoundNumber,
@@ -48,8 +51,16 @@ impl Block {
         Block::default()
     }
 
-    pub fn previous(&self) -> &Digest {
-        &self.qc.hash
+    pub fn previous(&self) -> ConsensusResult<&Digest> {
+        if self.qc.is_some() && self.tc.is_some() {
+            return Err(ConsensusError::QCTCConflict);
+        } else if let Some(ref qc) = self.qc {
+            return Ok(&qc.hash);
+        } else if let Some(ref tc) = self.tc {
+            return Ok(tc.highest_digest().expect("Empty TC"));
+        }
+
+        Err(ConsensusError::QCTCConflict)
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
@@ -60,12 +71,20 @@ impl Block {
             ConsensusError::UnknownAuthority(self.author)
         );
 
+        // Check QC TC conflict
+        match self.previous() {
+            Ok(_) => {},
+            Err(e) => return Err(e),
+        };
+
         // Check the signature.
         self.signature.verify(&self.digest(), &self.author)?;
 
-        // Check the embedded QC.
-        if self.qc != QC::genesis() {
-            self.qc.verify(committee)?;
+        // Check the embedded QC (if any).
+        if let Some(ref qc) = self.qc { // TODO *
+            if *qc != QC::genesis() {
+                qc.verify(committee, 2)?;
+            }
         }
 
         // Check the TC embedded in the block (if any).
@@ -84,7 +103,7 @@ impl Hash for Block {
         for x in &self.payload {
             hasher.update(x);
         }
-        hasher.update(&self.qc.hash);
+        hasher.update(self.previous().expect("Digest called before verify"));
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
@@ -93,11 +112,12 @@ impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(
             f,
-            "{}: B({}, {}, {:?}, {})",
+            "{}: B({}, {}, {:?}, {:?}, {})",
             self.digest(),
             self.author,
             self.round,
             self.qc,
+            self.tc,
             self.payload.iter().map(|x| x.len()).sum::<usize>(),
         )
     }
@@ -111,7 +131,8 @@ impl fmt::Display for Block {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Vote {
-    pub hash: Digest,
+    pub vote_type: VoteType,
+    pub hash: Digest, // Block hash
     pub round: RoundNumber,
     pub author: PublicKey,
     pub signature: Signature,
@@ -119,13 +140,16 @@ pub struct Vote {
 
 impl Vote {
     pub async fn new(
-        block: &Block,
+        vote_type: VoteType,
+        hash: Digest,
+        round: RoundNumber,
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
         let vote = Self {
-            hash: block.digest(),
-            round: block.round,
+            vote_type,
+            hash,
+            round,
             author,
             signature: Signature::default(),
         };
@@ -134,6 +158,12 @@ impl Vote {
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
+        // Ensure correct VoteType
+        ensure!(
+            self.vote_type == 1 || self.vote_type == 2,
+            ConsensusError::UnknownVoteType(self.vote_type)
+        );
+
         // Ensure the authority has voting rights.
         ensure!(
             committee.stake(&self.author) > 0,
@@ -149,7 +179,8 @@ impl Vote {
 impl Hash for Vote {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
-        hasher.update(&self.hash);
+        hasher.update(self.vote_type.to_le_bytes());
+        hasher.update(self.hash);
         hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
@@ -157,12 +188,13 @@ impl Hash for Vote {
 
 impl fmt::Debug for Vote {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "V({}, {}, {})", self.author, self.round, self.hash)
+        write!(f, "V{}({}, {}, {})", self.vote_type, self.author, self.round, self.hash)
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct QC {
+    pub vote_type: VoteType,
     pub hash: Digest,
     pub round: RoundNumber,
     pub votes: Vec<(PublicKey, Signature)>,
@@ -177,7 +209,13 @@ impl QC {
         self.hash == Digest::default() && self.round != 0
     }
 
-    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
+    pub fn verify(&self, committee: &Committee, expected_vote_type: VoteType) -> ConsensusResult<()> {
+        // Ensure QC type matched expectation
+        ensure!(
+            self.vote_type == expected_vote_type,
+            ConsensusError::InvalidVoteType(self.vote_type, expected_vote_type)
+        );
+
         // Ensure the QC has a quorum.
         let mut weight = 0;
         let mut used = HashSet::new();
@@ -201,7 +239,8 @@ impl QC {
 impl Hash for QC {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
-        hasher.update(&self.hash);
+        hasher.update(self.vote_type.to_le_bytes());
+        hasher.update(self.hash);
         hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
@@ -209,13 +248,13 @@ impl Hash for QC {
 
 impl fmt::Debug for QC {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "QC({}, {})", self.hash, self.round)
+        write!(f, "QC(V{}, {}, {})", self.vote_type, self.hash, self.round)
     }
 }
 
 impl PartialEq for QC {
     fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash && self.round == other.round
+        self.vote_type == other.vote_type && self.hash == other.hash && self.round == other.round
     }
 }
 
@@ -259,7 +298,7 @@ impl Timeout {
 
         // Check the embedded QC.
         if self.high_qc != QC::genesis() {
-            self.high_qc.verify(committee)?;
+            self.high_qc.verify(committee, 1)?;
         }
         Ok(())
     }
@@ -269,29 +308,31 @@ impl Hash for Timeout {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         hasher.update(self.round.to_le_bytes());
-        hasher.update(self.high_qc.round.to_le_bytes());
+        hasher.update(self.high_qc.round.to_le_bytes()); // ???: Need vote_type?
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
 
 impl fmt::Debug for Timeout {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "TV({}, {}, {:?})", self.author, self.round, self.high_qc)
+        write!(f, "T({}, {}, {:?})", self.author, self.round, self.high_qc)
     }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TC {
     pub round: RoundNumber,
-    pub votes: Vec<(PublicKey, Signature, RoundNumber)>,
+    pub votes: Vec<Timeout>,
 }
 
 impl TC {
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
-        // Ensure the QC has a quorum.
+        // Ensure the TC has a quorum.
         let mut weight = 0;
         let mut used = HashSet::new();
-        for (name, _, _) in self.votes.iter() {
+        for timeout in self.votes.iter() {
+            let name = &timeout.author;
+
             ensure!(!used.contains(name), ConsensusError::AuthorityReuse(*name));
             let voting_rights = committee.stake(name);
             ensure!(voting_rights > 0, ConsensusError::UnknownAuthority(*name));
@@ -304,23 +345,35 @@ impl TC {
         );
 
         // Check the signatures.
-        for (author, signature, high_qc_round) in &self.votes {
-            let mut hasher = Sha512::new();
-            hasher.update(self.round.to_le_bytes());
-            hasher.update(high_qc_round.to_le_bytes());
-            let digest = Digest(hasher.finalize().as_slice()[..32].try_into().unwrap());
-            signature.verify(&digest, &author)?;
+        for timeout in &self.votes {
+            ensure!(
+                self.round == timeout.round,
+                ConsensusError::MismatchTCTimeout(self.round, timeout.round)
+            );
+
+            timeout.verify(committee)?;
         }
         Ok(())
     }
 
     pub fn high_qc_rounds(&self) -> Vec<RoundNumber> {
-        self.votes.iter().map(|(_, _, r)| r).cloned().collect()
+        self.votes.iter().map(|timeout| &timeout.round).cloned().collect()
+    }
+
+    pub fn highest_digest(&self) -> Option<&Digest> {
+        let highest_qc_round = self.high_qc_rounds().iter().max().expect("Empty TC");
+
+        for timeout in self.votes.iter() {
+            if timeout.high_qc.round == *highest_qc_round {
+                return Some(&timeout.high_qc.hash);
+            }
+        }
+        None
     }
 }
 
 impl fmt::Debug for TC {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "TC({}, {:?})", self.round, self.high_qc_rounds())
+        write!(f, "TC({}, {:?}, {:?})", self.round, self.high_qc_rounds(), self.highest_digest())
     }
 }

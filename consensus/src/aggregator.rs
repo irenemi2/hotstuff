@@ -29,6 +29,8 @@ impl Aggregator {
         // TODO: A bad node may make us run out of memory by sending many votes
         // with different round numbers or different digests.
 
+        // TODO: Add vote_type part
+
         // Add the new vote to our aggregator and see if we have a QC.
         self.votes_aggregators
             .entry(vote.round)
