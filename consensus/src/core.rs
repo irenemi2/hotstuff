@@ -17,6 +17,7 @@ use std::cmp::max;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
+use std::collections::HashSet;
 
 #[cfg(test)]
 #[path = "tests/core_tests.rs"]
@@ -51,6 +52,7 @@ pub struct Core<Mempool> {
     high_qc: QC,
     timer: Timer<RoundNumber>,
     aggregator: Aggregator,
+    tc_digest_bounty: HashSet<Digest>,
 }
 
 impl<Mempool: 'static + NodeMempool> Core<Mempool> {
@@ -67,6 +69,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         core_channel: Receiver<CoreMessage>,
         network_channel: Sender<NetMessage>,
         commit_channel: Sender<Block>,
+        tc_digest_bounty: HashSet<Digest>,
     ) -> Self {
         let aggregator = Aggregator::new(committee.clone());
         Self {
@@ -86,6 +89,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             high_qc: QC::genesis(),
             timer: Timer::new(),
             aggregator,
+            tc_digest_bounty,
         }
     }
 
@@ -249,12 +253,18 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     #[async_recursion]
     async fn generate_proposal(&mut self, tc: Option<TC>) -> ConsensusResult<()> {
         // Make a new block.
+        let mut qc: Option<QC>;
+        if tc.is_some() {
+            qc = None;
+        } else {
+            qc = Some(self.high_qc.clone());
+        }
         let payload = self
             .mempool_driver
             .get(self.parameters.max_payload_size)
             .await;
         let block = Block::new(
-            self.high_qc.clone(),
+            qc,
             tc,
             self.name,
             self.round,
@@ -262,6 +272,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             self.signature_service.clone(),
         )
         .await;
+
         if !block.payload.is_empty() {
             info!("Created {}", block);
 
@@ -290,41 +301,89 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     #[async_recursion]
     async fn process_block(&mut self, block: &Block) -> ConsensusResult<()> {
         debug!("Processing {:?}", block);
+        // Storing block happen if the following condition is satisfied:
+        // (1) for qc blocks: if all ancestor blocks (tc and qc) have been stored
+        // (2) for tc blocks: if there exist a descendent qc block for this tc block
 
-        // Let's see if we have the last three ancestors of the block, that is:
-        //      b0 <- |qc0; b1| <- |qc1; b2| <- |qc2; block|
+        // TC blocks only needs to be stored when it is wanted in digest bounty
+        // Else ignore
+        if block.tc.is_some() {
+            if self.tc_digest_bounty.contains(&block.digest()) {
+                self.store_block(block).await?;
+                self.tc_digest_bounty.remove(&block.digest());
+            }
+
+            return Ok(());
+        }
+
+        // QC blocks may also be in digest bounty, remove them
+        if self.tc_digest_bounty.contains(&block.digest()) {
+            self.tc_digest_bounty.remove(&block.digest());
+        }
+
+        // Let's see if we have the ancestors of the block, that is:
+        //      b_n+2 <- |qc1; b_n+1| <- |tc_n; bn| <- .... <- |qc0; block|
         // If we don't, the synchronizer asks for them to other nodes. It will
-        // then ensure we process all three ancestors in the correct order, and
+        // then ensure we process all ancestors in the correct order, and
         // finally make us resume processing this block.
-        let (b0, b1) = match self.synchronizer.get_ancestors(block).await? {
-            Some(ancestors) => ancestors,
+        let mut ancestors: Vec<Block>;
+        let mut iter_block = block.clone();
+
+        // TODO: get_ancestor(block_ances_to_be_found, replayed_block)
+        let pre_iter_block = match self.synchronizer.get_ancestor(&iter_block).await? {
+            Some(pre_iter_block) => pre_iter_block,
             None => {
-                debug!("Processing of {} suspended: missing parent", block.digest());
+                debug!("Processing of {} suspended: missing parent", iter_block.digest());
+                let Some(ref parent_qc) = iter_block.qc;
+                self.tc_digest_bounty.insert(parent_qc.hash.clone());
                 return Ok(());
             }
         };
 
+        ancestors.push(pre_iter_block.clone());
+
+        if pre_iter_block.tc.is_some() {
+            iter_block = pre_iter_block;
+
+            while iter_block.tc.is_some() {
+                let pre_iter_block = match self.synchronizer.get_ancestor(&iter_block).await? {
+                    Some(pre_iter_block) => pre_iter_block,
+                    None => {
+                        debug!("Processing of {} suspended: missing parent", iter_block.digest());
+                        let Some(ref parent_qc) = iter_block.qc;
+                        self.tc_digest_bounty.insert(parent_qc.hash.clone());
+                        return Ok(());
+                    }
+                };
+
+                ancestors.push(pre_iter_block.clone());
+                iter_block = pre_iter_block;
+            }
+        }
+
+        // Ancestors vector has all ancestor blocks in reverse order (start: newest -> end: oldest)
         // Store the block only if we have already processed all its ancestors.
         self.store_block(block).await?;
 
-        // Cleanup the mempool.
-        self.mempool_driver.cleanup(&b0, &b1).await;
+        // Cleanup the mempool. TODO: cleanup(block_to_clean_up)
+        for b in ancestors.iter() {
+            self.mempool_driver.cleanup(b).await;
+        }
 
-        // Check if we can commit the head of the 2-chain.
+        // We can commit all blocks in ancestors, starting from the end.
         // Note that we commit blocks only if we have all its ancestors.
-        let mut commit_rule = b0.round + 1 == b1.round;
-        commit_rule &= b1.round + 1 == block.round;
-        if commit_rule {
-            if !b0.payload.is_empty() {
-                info!("Committed {}", b0);
+        ancestors.reverse();
+        for b in ancestors.iter() {
+            if !b.payload.is_empty() {
+                info!("Committed {}", b);
 
                 #[cfg(feature = "benchmark")]
-                for x in &b0.payload {
-                    info!("Committed B{}({})", b0.round, base64::encode(x));
+                for x in &b.payload {
+                    info!("Committed B{}({})", b.round, base64::encode(x));
                 }
             }
-            debug!("Committed {:?}", b0);
-            if let Err(e) = self.commit_channel.send(b0.clone()).await {
+            debug!("Committed {:?}", b);
+            if let Err(e) = self.commit_channel.send(b.clone()).await {
                 warn!("Failed to send block through the commit channel: {}", e);
             }
         }
@@ -336,7 +395,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             return Ok(());
         }
 
-        // See if we can vote for this block.
+        // See if we can vote for this block (vote1). HERE
         if let Some(vote) = self.make_vote(block).await {
             debug!("Created {:?}", vote);
             let next_leader = self.leader_elector.get_leader(self.round + 1);
