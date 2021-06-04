@@ -49,7 +49,9 @@ pub struct Core<Mempool> {
     commit_channel: Sender<Block>,
     round: RoundNumber,
     last_voted_round: RoundNumber,
-    high_qc: QC,
+    locked_vote1_qc_round: RoundNumber,
+    locked_vote1_qc: QC,
+    high_qc_vote2: QC,
     timer: Timer<RoundNumber>,
     aggregator: Aggregator,
     tc_digest_bounty: HashSet<Digest>,
@@ -86,7 +88,9 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             core_channel,
             round: 1,
             last_voted_round: 0,
-            high_qc: QC::genesis(),
+            locked_vote1_qc_round: 0,
+            locked_vote1_qc: QC::genesis(),
+            high_qc_vote2: QC::genesis(),
             timer: Timer::new(),
             aggregator,
             tc_digest_bounty,
@@ -133,27 +137,34 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         self.last_voted_round = max(self.last_voted_round, target);
     }
 
-    async fn make_vote(&mut self, block: &Block) -> Option<Vote> {
+    async fn make_vote1(&mut self, block: &Block) -> Option<Vote> {
         // Check if we can vote for this block.
         let safety_rule_1 = block.round > self.last_voted_round;
-        let mut safety_rule_2 = block.qc.round + 1 == block.round;
-        if let Some(ref tc) = block.tc {
-            let mut can_extend = tc.round + 1 == block.round;
-            can_extend &= block.qc.round >= *tc.high_qc_rounds().iter().max().expect("Empty TC");
-            safety_rule_2 |= can_extend;
+
+        let mut safety_rule_2 = false;
+        if let Some(ref qc) = block.qc {
+            safety_rule_2 = qc.round + 1 == block.round;
+        } else if let Some(ref tc) = block.tc {
+            safety_rule_2 = tc.round + 1 == block.round;
         }
+
         if !(safety_rule_1 && safety_rule_2) {
             return None;
         }
 
         // Ensure we won't vote for contradicting blocks.
         self.increase_last_voted_round(block.round);
-        // TODO [issue #15]: Write to storage preferred_round and last_voted_round.
-        Some(Vote::new(&block, self.name, self.signature_service.clone()).await)
+        // [issue #15]: Write to storage preferred_round and last_voted_round.
+        Some(Vote::new(1, block.digest(), block.round, self.name, self.signature_service.clone()).await)
     }
     // -- End Safety Module --
 
     // -- Start Pacemaker --
+
+    async fn make_vote2(&mut self, vote1: &Vote) -> Vote {
+        Vote::new(2, vote1.hash.clone(), vote1.round, self.name, self.signature_service.clone()).await
+    }
+
     fn update_high_qc(&mut self, qc: &QC) {
         if qc.round > self.high_qc.round {
             self.high_qc = qc.clone();
@@ -188,15 +199,37 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         vote.verify(&self.committee)?;
 
         // Add the new vote to our aggregator and see if we have a quorum.
-        if let Some(qc) = self.aggregator.add_vote(vote.clone())? {
-            debug!("Assembled {:?}", qc);
+        // TODO aggregator add_vote1 & add_vote2
+        if vote.vote_type == 1 {
+            if let Some(qc) = self.aggregator.add_vote1(vote.clone())? {
+                // vote1 QC
+                debug!("Assembled {:?}", qc);
 
-            // Process the QC.
-            self.process_qc(&qc).await;
+                // update locked block with vote1 qc
+                self.locked_vote1_qc_round = vote.round;
+                self.locked_vote1_qc = qc.clone();
 
-            // Make a new block if we are the next leader.
-            if self.name == self.leader_elector.get_leader(self.round) {
-                self.generate_proposal(None).await?;
+                // create and send out vote2
+                let vote2 = self.make_vote2(vote).await;
+                debug!("Created {:?}", vote2);
+                let message = CoreMessage::Vote(vote2);
+                self.transmit(&message, None).await?;
+                self.handle_vote(&vote2).await?;
+            }
+        } else if vote.vote_type == 2 {
+            if let Some(qc) = self.aggregator.add_vote2(vote.clone())? {
+                debug!("Assembled {:?}", qc);
+
+                // block with vote2 qc
+                // all ancestors not committed
+
+                // Process the QC.
+                self.process_qc(&qc).await;
+
+                // Make a new block if we are the next leader.
+                if self.name == self.leader_elector.get_leader(self.round) {
+                    self.generate_proposal(None).await?;
+                }
             }
         }
         Ok(())
@@ -312,7 +345,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                 self.store_block(block).await?;
                 self.tc_digest_bounty.remove(&block.digest());
             }
-
+            // TODO: vote for tc block as well
             return Ok(());
         }
 
@@ -395,21 +428,18 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             return Ok(());
         }
 
-        // See if we can vote for this block (vote1). HERE
-        if let Some(vote) = self.make_vote(block).await {
-            debug!("Created {:?}", vote);
-            let next_leader = self.leader_elector.get_leader(self.round + 1);
-            if next_leader == self.name {
-                self.handle_vote(&vote).await?;
-            } else {
-                let message = CoreMessage::Vote(vote);
-                self.transmit(&message, Some(next_leader)).await?;
-            }
+        // See if we can vote for this block (vote1).
+        if let Some(vote1) = self.make_vote1(block).await {
+            debug!("Created {:?}", vote1);
+            let message = CoreMessage::Vote(vote1);
+            self.transmit(&message, None).await?;
+            self.handle_vote(&vote1).await?;
         }
         Ok(())
     }
 
     async fn handle_proposal(&mut self, block: &Block) -> ConsensusResult<()> {
+        // what if got vote2 qc, but doesn't have vote1 qc? Stale vote1 qc in timeout possible
         let digest = block.digest();
 
         // Ensure the block proposer is the right leader for the round.
