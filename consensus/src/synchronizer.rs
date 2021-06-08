@@ -136,4 +136,18 @@ impl Synchronizer {
             .expect("We should have all ancestors of delivered blocks");
         Ok(Some((b0, b1)))
     }
+
+    pub async fn get_block(
+        &mut self,
+        hash: &Digest,
+    ) -> ConsensusResult<Option<Block>> {
+        if *hash == Block::genesis().digest() {
+            return Ok(Some(Block::genesis()));
+        }
+
+        match self.store.read(hash.to_vec()).await? {
+            Some(bytes) => Ok(Some(bincode::deserialize(&bytes)?)),
+            None => Ok(None),
+        }
+    }
 }

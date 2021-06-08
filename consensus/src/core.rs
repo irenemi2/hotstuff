@@ -218,14 +218,43 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             }
         } else if vote.vote_type == 2 {
             if let Some(qc) = self.aggregator.add_vote2(vote.clone())? {
+                // vote2 qc
                 debug!("Assembled {:?}", qc);
 
-                // block with vote2 qc
-                // all ancestors not committed
+                if let Some(block) = self
+                    .synchronizer
+                    .get_block(&qc.hash)
+                    .await
+                    .expect("Failed to read block") {
+
+                    assert!( // TODO: ealier vote2 qc collected when future vote2 qc available possible?
+                        block.qc.is_some(),
+                        "TC block in store for vote2 qc"
+                    );
+
+                    // block in store => all ancestors should have been committed
+                    // we commit the block here
+                    // TODO: update committed block info
+                    self.mempool_driver.cleanup(block).await;
+
+                    if !block.payload.is_empty() {
+                        info!("Committed {}", block);
+
+                        #[cfg(feature = "benchmark")]
+                        for x in &block.payload {
+                            info!("Committed B{}({})", block.round, base64::encode(x));
+                        }
+                    }
+                    debug!("Committed {:?}", block);
+                    if let Err(e) = self.commit_channel.send(block.clone()).await {
+                        warn!("Failed to send block through the commit channel: {}", e);
+                    }
+                }
 
                 // Process the QC.
                 self.process_qc(&qc).await;
 
+                // TODO: most recent committed block check HERE
                 // Make a new block if we are the next leader.
                 if self.name == self.leader_elector.get_leader(self.round) {
                     self.generate_proposal(None).await?;
@@ -405,6 +434,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
         // We can commit all blocks in ancestors, starting from the end.
         // Note that we commit blocks only if we have all its ancestors.
+        // TODO: premature vote2 phase commit check
         ancestors.reverse();
         for b in ancestors.iter() {
             if !b.payload.is_empty() {
