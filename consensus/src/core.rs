@@ -233,7 +233,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
                     // block in store => all ancestors should have been committed
                     // we commit the block here
-                    // TODO: update committed block info
                     self.mempool_driver.cleanup(block).await;
 
                     if !block.payload.is_empty() {
