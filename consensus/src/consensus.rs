@@ -10,6 +10,7 @@ use log::info;
 use network::{NetReceiver, NetSender};
 use store::Store;
 use tokio::sync::mpsc::{channel, Sender};
+use std::collections::HashSet;
 
 #[cfg(test)]
 #[path = "tests/consensus_tests.rs"]
@@ -80,6 +81,9 @@ impl Consensus {
         )
         .await;
 
+        // For missing tc block hunting
+        let tc_bounty_ls = HashSet::new();
+
         let mut core = Core::new(
             name,
             committee,
@@ -92,6 +96,7 @@ impl Consensus {
             /* core_channel */ rx_core,
             /* network_channel */ tx_network,
             commit_channel,
+            tc_bounty_ls,
         );
         tokio::spawn(async move {
             core.run().await;
