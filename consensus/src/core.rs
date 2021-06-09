@@ -49,12 +49,12 @@ pub struct Core<Mempool> {
     commit_channel: Sender<Block>,
     round: RoundNumber,
     last_voted_round: RoundNumber,
-    locked_vote1_qc_round: RoundNumber,
     locked_vote1_qc: QC,
     high_qc_vote2: QC,
     timer: Timer<RoundNumber>,
     aggregator: Aggregator,
     tc_digest_bounty: HashSet<Digest>,
+    latest_commit_digest: Option<Digest>,
 }
 
 impl<Mempool: 'static + NodeMempool> Core<Mempool> {
@@ -88,12 +88,12 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             core_channel,
             round: 1,
             last_voted_round: 0,
-            locked_vote1_qc_round: 0,
             locked_vote1_qc: QC::genesis(),
             high_qc_vote2: QC::genesis(),
             timer: Timer::new(),
             aggregator,
             tc_digest_bounty,
+            latest_commit_digest: None,
         }
     }
 
@@ -166,8 +166,8 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     }
 
     fn update_high_qc(&mut self, qc: &QC) {
-        if qc.round > self.high_qc.round {
-            self.high_qc = qc.clone();
+        if qc.round > self.high_qc_vote2.round {
+            self.high_qc_vote2 = qc.clone();
         }
     }
 
@@ -175,7 +175,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         warn!("Timeout reached for round {}", self.round);
         self.increase_last_voted_round(self.round);
         let timeout = Timeout::new(
-            self.high_qc.clone(),
+            self.locked_vote1_qc.clone(),
             self.round,
             self.name,
             self.signature_service.clone(),
@@ -206,7 +206,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                 debug!("Assembled {:?}", qc);
 
                 // update locked block with vote1 qc
-                self.locked_vote1_qc_round = vote.round;
                 self.locked_vote1_qc = qc.clone();
 
                 // create and send out vote2
@@ -249,12 +248,13 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                     if let Err(e) = self.commit_channel.send(block.clone()).await {
                         warn!("Failed to send block through the commit channel: {}", e);
                     }
+
+                    self.latest_commit_digest = Some(block.digest().clone());
                 }
 
                 // Process the QC.
                 self.process_qc(&qc).await;
 
-                // TODO: most recent committed block check HERE
                 // Make a new block if we are the next leader.
                 if self.name == self.leader_elector.get_leader(self.round) {
                     self.generate_proposal(None).await?;
@@ -274,7 +274,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         timeout.verify(&self.committee)?;
 
         // Process the QC embedded in the timeout.
-        self.process_qc(&timeout.high_qc).await;
+        // self.process_qc(&timeout.high_qc).await;
 
         // Add the new vote to our aggregator and see if we have a quorum.
         if let Some(tc) = self.aggregator.add_timeout(timeout.clone())? {
@@ -319,7 +319,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         if tc.is_some() {
             qc = None;
         } else {
-            qc = Some(self.high_qc.clone());
+            qc = Some(self.high_qc_vote2.clone());
         }
         let payload = self
             .mempool_driver
@@ -425,7 +425,11 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
         // Ancestors vector has all ancestor blocks in reverse order (start: newest -> end: oldest)
         // Store the block only if we have already processed all its ancestors.
-        self.store_block(block).await?;
+        // Don't store if the round doesn't match up to prevent DOS
+        if (block.qc.is_some() && block.qc.expect("").round+1 == block.round) ||
+           (block.tc.is_some() && block.tc.expect("").round+1 == block.round) {
+            self.store_block(block).await?;
+        }
 
         // Cleanup the mempool. TODO: cleanup(block_to_clean_up)
         for b in ancestors.iter() {
@@ -437,6 +441,12 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // TODO: premature vote2 phase commit check
         ancestors.reverse();
         for b in ancestors.iter() {
+            if let Some(latest_commit_digest) = self.latest_commit_digest {
+                if latest_commit_digest == b.digest() {
+                    continue; // ignore committed block (committed during handle_vote)
+                }
+            }
+
             if !b.payload.is_empty() {
                 info!("Committed {}", b);
 
@@ -449,6 +459,8 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             if let Err(e) = self.commit_channel.send(b.clone()).await {
                 warn!("Failed to send block through the commit channel: {}", e);
             }
+
+            self.latest_commit_digest = Some(b.digest().clone());
         }
 
         // Ensure the block's round is as expected.
@@ -469,7 +481,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     }
 
     async fn handle_proposal(&mut self, block: &Block) -> ConsensusResult<()> {
-        // what if got vote2 qc, but doesn't have vote1 qc? Stale vote1 qc in timeout possible
         let digest = block.digest();
 
         // Ensure the block proposer is the right leader for the round.
@@ -485,11 +496,11 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Check the block is correctly formed.
         block.verify(&self.committee)?;
 
-        // Process the QC. This may allow us to advance round.
-        self.process_qc(&block.qc).await;
-
-        // Process the TC (if any). This may also allow us to advance round.
-        if let Some(ref tc) = block.tc {
+        if let Some(ref qc) = block.qc {
+            // Process the QC (if any). This may allow us to advance round.
+            self.process_qc(qc).await;
+        } else if let Some(ref tc) = block.tc {
+            // Process the TC (if any). This may allow us to advance round.
             self.advance_round(tc.round).await;
         }
 
