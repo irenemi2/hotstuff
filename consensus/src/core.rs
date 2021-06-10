@@ -233,7 +233,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
                     // block in store => all ancestors should have been committed
                     // we commit the block here
-                    self.mempool_driver.cleanup(block).await;
+                    self.mempool_driver.cleanup(&block).await;
 
                     if !block.payload.is_empty() {
                         info!("Committed {}", block);
@@ -429,7 +429,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             self.store_block(block).await?;
         }
 
-        // Cleanup the mempool. TODO: cleanup(block_to_clean_up)
+        // Cleanup the mempool.
         for b in ancestors.iter() {
             self.mempool_driver.cleanup(b).await;
         }
