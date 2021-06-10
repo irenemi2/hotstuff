@@ -390,8 +390,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         let mut ancestors: Vec<Block>;
         let mut iter_block = block.clone();
 
-        // TODO: get_ancestor(block_ances_to_be_found, replayed_block)
-        let pre_iter_block = match self.synchronizer.get_ancestor(&iter_block).await? {
+        let pre_iter_block = match self.synchronizer.get_parent(&iter_block, &block).await? {
             Some(pre_iter_block) => pre_iter_block,
             None => {
                 debug!("Processing of {} suspended: missing parent", iter_block.digest());
@@ -407,7 +406,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             iter_block = pre_iter_block;
 
             while iter_block.tc.is_some() {
-                let pre_iter_block = match self.synchronizer.get_ancestor(&iter_block).await? {
+                let pre_iter_block = match self.synchronizer.get_parent(&iter_block, &block).await? {
                     Some(pre_iter_block) => pre_iter_block,
                     None => {
                         debug!("Processing of {} suspended: missing parent", iter_block.digest());
