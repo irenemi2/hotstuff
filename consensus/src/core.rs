@@ -211,7 +211,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                 // create and send out vote2
                 let vote2 = self.make_vote2(vote).await;
                 debug!("Created {:?}", vote2);
-                let message = CoreMessage::Vote(vote2);
+                let message = CoreMessage::Vote(vote2.clone());
                 self.transmit(&message, None).await?;
                 self.handle_vote(&vote2).await?;
             }
@@ -314,7 +314,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     #[async_recursion]
     async fn generate_proposal(&mut self, tc: Option<TC>) -> ConsensusResult<()> {
         // Make a new block.
-        let mut qc: Option<QC>;
+        let qc: Option<QC>;
         if tc.is_some() {
             qc = None;
         } else {
@@ -387,15 +387,14 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // If we don't, the synchronizer asks for them to other nodes. It will
         // then ensure we process all ancestors in the correct order, and
         // finally make us resume processing this block.
-        let mut ancestors: Vec<Block>;
+        let mut ancestors = Vec::new();
         let mut iter_block = block.clone();
 
         let pre_iter_block = match self.synchronizer.get_parent(&iter_block, &block).await? {
             Some(pre_iter_block) => pre_iter_block,
             None => {
                 debug!("Processing of {} suspended: missing parent", iter_block.digest());
-                let Some(ref parent_qc) = iter_block.qc;
-                self.tc_digest_bounty.insert(parent_qc.hash.clone());
+                self.tc_digest_bounty.insert(iter_block.previous().expect("Invalid block").clone());
                 return Ok(());
             }
         };
@@ -410,8 +409,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                     Some(pre_iter_block) => pre_iter_block,
                     None => {
                         debug!("Processing of {} suspended: missing parent", iter_block.digest());
-                        let Some(ref parent_qc) = iter_block.qc;
-                        self.tc_digest_bounty.insert(parent_qc.hash.clone());
+                        self.tc_digest_bounty.insert(iter_block.previous().expect("Invalid block").clone());
                         return Ok(());
                     }
                 };
@@ -424,8 +422,15 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Ancestors vector has all ancestor blocks in reverse order (start: newest -> end: oldest)
         // Store the block only if we have already processed all its ancestors.
         // Don't store if the round doesn't match up to prevent DOS
-        if (block.qc.is_some() && block.qc.expect("").round+1 == block.round) ||
-           (block.tc.is_some() && block.tc.expect("").round+1 == block.round) {
+        let mut round = 0;
+        if let Some(ref qc) = block.qc {
+            round = qc.round;
+        } else if let Some(ref tc) = block.tc {
+            round = tc.round;
+        } else {
+            assert!(false, "Invalid block");
+        }
+        if round+1 == block.round {
             self.store_block(block).await?;
         }
 
@@ -439,8 +444,8 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // TODO: premature vote2 phase commit check
         ancestors.reverse();
         for b in ancestors.iter() {
-            if let Some(latest_commit_digest) = self.latest_commit_digest {
-                if latest_commit_digest == b.digest() {
+            if let Some(ref latest_commit_digest) = self.latest_commit_digest {
+                if *latest_commit_digest == b.digest() {
                     continue; // ignore committed block (committed during handle_vote)
                 }
             }
@@ -471,7 +476,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // See if we can vote for this block (vote1).
         if let Some(vote1) = self.make_vote1(block).await {
             debug!("Created {:?}", vote1);
-            let message = CoreMessage::Vote(vote1);
+            let message = CoreMessage::Vote(vote1.clone());
             self.transmit(&message, None).await?;
             self.handle_vote(&vote1).await?;
         }

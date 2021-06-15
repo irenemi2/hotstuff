@@ -180,7 +180,7 @@ impl Hash for Vote {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         hasher.update(self.vote_type.to_le_bytes());
-        hasher.update(self.hash);
+        hasher.update(self.hash.clone());
         hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
@@ -240,7 +240,7 @@ impl Hash for QC {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         hasher.update(self.vote_type.to_le_bytes());
-        hasher.update(self.hash);
+        hasher.update(self.hash.clone());
         hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
@@ -361,7 +361,8 @@ impl TC {
     }
 
     pub fn highest_digest(&self) -> Option<&Digest> {
-        let highest_qc_round = self.high_qc_rounds().iter().max().expect("Empty TC");
+        let highest_qc_round_vec = self.high_qc_rounds();
+        let highest_qc_round = highest_qc_round_vec.iter().max().expect("Empty TC");
 
         for timeout in self.votes.iter() {
             if timeout.high_qc.round == *highest_qc_round {
