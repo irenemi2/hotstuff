@@ -199,7 +199,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         vote.verify(&self.committee)?;
 
         // Add the new vote to our aggregator and see if we have a quorum.
-        // TODO aggregator add_vote1 & add_vote2
         if vote.vote_type == 1 {
             if let Some(qc) = self.aggregator.add_vote1(vote.clone())? {
                 // vote1 QC
@@ -226,7 +225,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                     .await
                     .expect("Failed to read block") {
 
-                    assert!( // TODO: ealier vote2 qc collected when future vote2 qc available possible?
+                    assert!(
                         block.qc.is_some(),
                         "TC block in store for vote2 qc"
                     );
@@ -373,7 +372,22 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                 self.store_block(block).await?;
                 self.tc_digest_bounty.remove(&block.digest());
             }
-            // TODO: vote for tc block as well
+
+            // Ensure the block's round is as expected (Note it is assumed with qc/tc in block self.round is up-to-date).
+            // This check is important: it prevents bad leaders from producing blocks
+            // far in the future that may cause overflow on the round number.
+            if block.round != self.round {
+                return Ok(());
+            }
+
+            // See if we can vote for this block (vote1).
+            if let Some(vote1) = self.make_vote1(block).await {
+                debug!("Created {:?}", vote1);
+                let message = CoreMessage::Vote(vote1.clone());
+                self.transmit(&message, None).await?;
+                self.handle_vote(&vote1).await?;
+            }
+
             return Ok(());
         }
 
@@ -441,7 +455,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
         // We can commit all blocks in ancestors, starting from the end.
         // Note that we commit blocks only if we have all its ancestors.
-        // TODO: premature vote2 phase commit check
         ancestors.reverse();
         for b in ancestors.iter() {
             if let Some(ref latest_commit_digest) = self.latest_commit_digest {
@@ -467,8 +480,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         }
 
         // Ensure the block's round is as expected.
-        // This check is important: it prevents bad leaders from producing blocks
-        // far in the future that may cause overflow on the round number.
         if block.round != self.round {
             return Ok(());
         }

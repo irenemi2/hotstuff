@@ -81,7 +81,7 @@ impl Block {
         self.signature.verify(&self.digest(), &self.author)?;
 
         // Check the embedded QC (if any).
-        if let Some(ref qc) = self.qc { // TODO *
+        if let Some(ref qc) = self.qc {
             if *qc != QC::genesis() {
                 qc.verify(committee, 2)?;
             }
