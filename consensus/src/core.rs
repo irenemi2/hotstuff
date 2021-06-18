@@ -93,7 +93,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             timer: Timer::new(),
             aggregator,
             tc_digest_bounty,
-            latest_commit_digest: None,
+            latest_commit_digest: Some(Block::genesis().digest()), // TODO: remove option
         }
     }
 
