@@ -10,7 +10,6 @@ use log::info;
 use network::{NetReceiver, NetSender};
 use store::Store;
 use tokio::sync::mpsc::{channel, Sender};
-use std::collections::HashSet;
 
 #[cfg(test)]
 #[path = "tests/consensus_tests.rs"]
