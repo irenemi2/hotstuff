@@ -81,9 +81,6 @@ impl Consensus {
         )
         .await;
 
-        // For missing tc block hunting
-        let tc_bounty_ls = HashSet::new();
-
         let mut core = Core::new(
             name,
             committee,
@@ -96,7 +93,6 @@ impl Consensus {
             /* core_channel */ rx_core,
             /* network_channel */ tx_network,
             commit_channel,
-            tc_bounty_ls,
         );
         tokio::spawn(async move {
             core.run().await;

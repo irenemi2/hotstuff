@@ -17,7 +17,6 @@ use std::cmp::max;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
-use std::collections::HashSet;
 
 #[cfg(test)]
 #[path = "tests/core_tests.rs"]
@@ -53,7 +52,6 @@ pub struct Core<Mempool> {
     high_qc_vote2: QC,
     timer: Timer<RoundNumber>,
     aggregator: Aggregator,
-    tc_digest_bounty: HashSet<Digest>,
     latest_commit_digest: Option<Digest>,
 }
 
@@ -71,7 +69,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         core_channel: Receiver<CoreMessage>,
         network_channel: Sender<NetMessage>,
         commit_channel: Sender<Block>,
-        tc_digest_bounty: HashSet<Digest>,
     ) -> Self {
         let aggregator = Aggregator::new(committee.clone());
         Self {
@@ -92,7 +89,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             high_qc_vote2: QC::genesis(),
             timer: Timer::new(),
             aggregator,
-            tc_digest_bounty,
             latest_commit_digest: Some(Block::genesis().digest()), // TODO: remove option
         }
     }
@@ -225,29 +221,28 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                     .await
                     .expect("Failed to read block") {
 
-                    assert!(
-                        block.qc.is_some(),
-                        "TC block in store for vote2 qc"
-                    );
+                    // Only commit qc block here, leave tc block to the process_block for committing
+                    if block.qc.is_some() {
 
-                    // block in store => all ancestors should have been committed
-                    // we commit the block here
-                    self.mempool_driver.cleanup(&block).await;
+                        // block in store => all ancestors should have been committed
+                        // we commit the block here
+                        self.mempool_driver.cleanup(&block).await;
 
-                    if !block.payload.is_empty() {
-                        info!("Committed {}", block);
+                        if !block.payload.is_empty() {
+                            info!("Committed {}", block);
 
-                        #[cfg(feature = "benchmark")]
-                        for x in &block.payload {
-                            info!("Committed B{}({})", block.round, base64::encode(x));
+                            #[cfg(feature = "benchmark")]
+                            for x in &block.payload {
+                                info!("Committed B{}({})", block.round, base64::encode(x));
+                            }
                         }
-                    }
-                    debug!("Committed {:?}", block);
-                    if let Err(e) = self.commit_channel.send(block.clone()).await {
-                        warn!("Failed to send block through the commit channel: {}", e);
-                    }
+                        debug!("Committed {:?}", block);
+                        if let Err(e) = self.commit_channel.send(block.clone()).await {
+                            warn!("Failed to send block through the commit channel: {}", e);
+                        }
 
-                    self.latest_commit_digest = Some(block.digest().clone());
+                        self.latest_commit_digest = Some(block.digest().clone());
+                    }
                 }
 
                 // Process the QC.
@@ -363,14 +358,11 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         debug!("Processing {:?}", block);
         // Storing block happen if the following condition is satisfied:
         // (1) for qc blocks: if all ancestor blocks (tc and qc) have been stored
-        // (2) for tc blocks: if there exist a descendent qc block for this tc block
+        // (2) for tc blocks: always store (following hotstuff org design, but may cause resource exhaustion)
 
-        // TC blocks only needs to be stored when it is wanted in digest bounty
-        // Else ignore
-        if block.tc.is_some() {
-            if self.tc_digest_bounty.contains(&block.digest()) {
+        if let Some(ref tc) = block.tc {
+            if tc.round+1 == block.round {
                 self.store_block(block).await?;
-                self.tc_digest_bounty.remove(&block.digest());
             }
 
             // Ensure the block's round is as expected (Note it is assumed with qc/tc in block self.round is up-to-date).
@@ -391,11 +383,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             return Ok(());
         }
 
-        // QC blocks may also be in digest bounty, remove them
-        if self.tc_digest_bounty.contains(&block.digest()) {
-            self.tc_digest_bounty.remove(&block.digest());
-        }
-
         // Let's see if we have the ancestors of the block, that is:
         //      b_n+2 <- |qc1; b_n+1| <- |tc_n; bn| <- .... <- |qc0; block|
         // If we don't, the synchronizer asks for them to other nodes. It will
@@ -408,7 +395,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             Some(pre_iter_block) => pre_iter_block,
             None => {
                 debug!("Processing of {} suspended: missing parent", iter_block.digest());
-                self.tc_digest_bounty.insert(iter_block.previous().expect("Invalid block").clone());
                 return Ok(());
             }
         };
@@ -423,7 +409,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                     Some(pre_iter_block) => pre_iter_block,
                     None => {
                         debug!("Processing of {} suspended: missing parent", iter_block.digest());
-                        self.tc_digest_bounty.insert(iter_block.previous().expect("Invalid block").clone());
                         return Ok(());
                     }
                 };
@@ -436,16 +421,13 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Ancestors vector has all ancestor blocks in reverse order (start: newest -> end: oldest)
         // Store the block only if we have already processed all its ancestors.
         // Don't store if the round doesn't match up to prevent DOS
-        let mut round = 0;
         if let Some(ref qc) = block.qc {
-            round = qc.round;
-        } else if let Some(ref tc) = block.tc {
-            round = tc.round;
+            if qc.round+1 == block.round {
+                self.store_block(block).await?;
+            }
         } else {
+            debug!("Invalid block: {:?}", block);
             assert!(false, "Invalid block");
-        }
-        if round+1 == block.round {
-            self.store_block(block).await?;
         }
 
         // Cleanup the mempool.
