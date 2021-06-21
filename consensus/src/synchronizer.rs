@@ -112,14 +112,14 @@ impl Synchronizer {
     ) -> ConsensusResult<Option<Block>> {
         let previous = child_block.previous().expect("Verified block does not have parent"); // should never panic for verified block
 
-        if *previous == QC::genesis().hash { // QC::genesis().hash should be consistent to work
+        if previous == QC::genesis().hash { // QC::genesis().hash should be consistent to work
             return Ok(Some(Block::genesis()));
         }
 
         match self.store.read(previous.to_vec()).await? {
             Some(bytes) => Ok(Some(bincode::deserialize(&bytes)?)),
             None => {
-                if let Err(e) = self.inner_channel.send((previous.clone(), replay_block.clone())).await {
+                if let Err(e) = self.inner_channel.send((previous, replay_block.clone())).await {
                     panic!("Failed to send request to synchronizer: {}", e);
                 }
                 Ok(None)

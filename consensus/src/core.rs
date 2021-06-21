@@ -89,7 +89,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             high_qc_vote2: QC::genesis(),
             timer: Timer::new(),
             aggregator,
-            latest_commit_digest: Some(Block::genesis().digest()), // TODO: remove option
+            latest_commit_digest: Some(Block::genesis().digest()), // TODO: (1) remove option; (2) change to use Digest::default() for genesis block digest for consistency (need to change digest impl for Block)
         }
     }
 

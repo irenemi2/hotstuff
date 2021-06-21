@@ -51,13 +51,19 @@ impl Block {
         Block::default()
     }
 
-    pub fn previous(&self) -> ConsensusResult<&Digest> {
+    pub fn previous(&self) -> ConsensusResult<Digest> {
         if self.qc.is_some() && self.tc.is_some() {
             return Err(ConsensusError::QCTCConflict);
         } else if let Some(ref qc) = self.qc {
-            return Ok(&qc.hash);
+            return Ok(qc.hash.clone());
         } else if let Some(ref tc) = self.tc {
-            return Ok(tc.highest_digest().expect("Empty TC"));
+            return Ok(tc.highest_digest().expect("Empty TC").clone());
+        }
+
+        if bincode::serialize(self).expect("Failed to serialize block") == bincode::serialize(&Block::genesis()).expect("Failed to serialize block") {
+            // Weird workaround for rust type inference to check if self block is the same as the genesis block
+            // TODO: fix this
+            return Ok(Digest::default());
         }
 
         Err(ConsensusError::QCTCConflict)
@@ -103,7 +109,7 @@ impl Hash for Block {
         for x in &self.payload {
             hasher.update(x);
         }
-        hasher.update(self.previous().expect("Digest called before verify"));
+        hasher.update(&self.previous().expect("Digest called before verify"));
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
@@ -357,7 +363,7 @@ impl TC {
     }
 
     pub fn high_qc_rounds(&self) -> Vec<RoundNumber> {
-        self.votes.iter().map(|timeout| &timeout.round).cloned().collect()
+        self.votes.iter().map(|timeout| &timeout.round).cloned().collect() // CHECK: stealing ownership?
     }
 
     pub fn highest_digest(&self) -> Option<&Digest> {
