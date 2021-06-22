@@ -363,7 +363,7 @@ impl TC {
     }
 
     pub fn high_qc_rounds(&self) -> Vec<RoundNumber> {
-        self.votes.iter().map(|timeout| &timeout.round).cloned().collect() // CHECK: stealing ownership?
+        self.votes.iter().map(|timeout| &timeout.high_qc.round).cloned().collect() // CHECK: stealing ownership?
     }
 
     pub fn highest_digest(&self) -> Option<&Digest> {
