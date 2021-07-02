@@ -2,6 +2,7 @@ import subprocess
 from math import ceil
 from os.path import basename, join, splitext
 from time import sleep
+from time import time as curtime
 
 from benchmark.commands import CommandMaker
 from benchmark.config import Key, LocalCommittee, NodeParameters, BenchParameters, ConfigError
@@ -104,11 +105,12 @@ class LocalBench:
             sleep(2 * self.node_parameters.timeout_delay / 1000)
 
             # Wait for all transactions to be processed.
-            Print.info(f'Running benchmark ({self.duration} sec)...')
+            Print.info(f'Running benchmark ({self.duration} sec, cur time {curtime()})...')
             sleep(self.duration)
             self._kill_nodes()
 
             # Parse logs and return the parser.
+            sleep(3)
             Print.info('Parsing logs...')
             return LogParser.process('./logs')
 
