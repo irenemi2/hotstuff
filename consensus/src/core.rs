@@ -29,7 +29,7 @@ pub enum CoreMessage {
     Propose(Block),
     Vote(Vote),
     Timeout(Timeout),
-    TC(TC),
+    //TC(TC),
     LoopBack(Block),
     SyncRequest(Digest, PublicKey),
 }
@@ -198,7 +198,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         if vote.vote_type == 1 {
             if let Some(qc) = self.aggregator.add_vote1(vote.clone())? {
                 // vote1 QC
-                debug!("Assembled {:?}", qc);
+                debug!("Assembled vote1 qc {:?}", qc);
 
                 // update locked block with vote1 qc
                 self.locked_vote1_qc = qc.clone();
@@ -213,7 +213,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         } else if vote.vote_type == 2 {
             if let Some(qc) = self.aggregator.add_vote2(vote.clone())? {
                 // vote2 qc
-                debug!("Assembled {:?}", qc);
+                debug!("Assembled vote2 qc {:?}", qc);
 
                 if let Some(block) = self
                     .synchronizer
@@ -271,14 +271,14 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
         // Add the new vote to our aggregator and see if we have a quorum.
         if let Some(tc) = self.aggregator.add_timeout(timeout.clone())? {
-            debug!("Assembled {:?}", tc);
+            debug!("Assembled tc {:?}", tc);
 
             // Try to advance the round.
             self.advance_round(tc.round).await;
 
             // Broadcast the TC.
-            let message = CoreMessage::TC(tc.clone());
-            self.transmit(&message, None).await?;
+            //let message = CoreMessage::TC(tc.clone());
+            //self.transmit(&message, None).await?;
 
             // Make a new block if we are the next leader.
             if self.name == self.leader_elector.get_leader(self.round) {
@@ -524,13 +524,13 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         Ok(())
     }
 
-    async fn handle_tc(&mut self, tc: TC) -> ConsensusResult<()> {
-        self.advance_round(tc.round).await;
-        if self.name == self.leader_elector.get_leader(self.round) {
-            self.generate_proposal(Some(tc)).await?;
-        }
-        Ok(())
-    }
+    //async fn handle_tc(&mut self, tc: TC) -> ConsensusResult<()> {
+    //    self.advance_round(tc.round).await;
+    //    if self.name == self.leader_elector.get_leader(self.round) {
+    //        self.generate_proposal(Some(tc)).await?;
+    //    }
+    //    Ok(())
+    //}
 
     pub async fn run(&mut self) {
         // Upon booting, generate the very first block (if we are the leader).
@@ -551,7 +551,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                         CoreMessage::Propose(block) => self.handle_proposal(&block).await,
                         CoreMessage::Vote(vote) => self.handle_vote(&vote).await,
                         CoreMessage::Timeout(timeout) => self.handle_timeout(&timeout).await,
-                        CoreMessage::TC(tc) => self.handle_tc(tc).await,
+                        //CoreMessage::TC(tc) => self.handle_tc(tc).await,
                         CoreMessage::LoopBack(block) => self.process_block(&block).await,
                         CoreMessage::SyncRequest(digest, sender) => self.handle_sync_request(digest, sender).await
                     }
