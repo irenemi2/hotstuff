@@ -1,6 +1,6 @@
 use crate::config::Export as _;
 use crate::config::{Committee, Parameters, Secret};
-use consensus::{Block, Consensus, ConsensusError};
+use consensus::{Propose, Consensus, ConsensusError};
 use crypto::SignatureService;
 use log::info;
 use mempool::{Mempool, MempoolError};
@@ -27,7 +27,7 @@ pub enum NodeError {
 }
 
 pub struct Node {
-    pub commit: Receiver<Block>,
+    pub commit: Receiver<Propose>,
 }
 
 impl Node {

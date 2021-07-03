@@ -18,4 +18,4 @@ pub use crate::config::{Committee, Parameters};
 pub use crate::consensus::Consensus;
 pub use crate::error::ConsensusError;
 pub use crate::mempool::{NodeMempool, PayloadStatus};
-pub use crate::messages::Block;
+pub use crate::messages::Propose;

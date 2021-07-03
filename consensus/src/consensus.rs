@@ -3,7 +3,7 @@ use crate::core::Core;
 use crate::error::ConsensusResult;
 use crate::leader::LeaderElector;
 use crate::mempool::{MempoolDriver, NodeMempool};
-use crate::messages::Block;
+use crate::messages::Propose;
 use crate::synchronizer::Synchronizer;
 use crypto::{PublicKey, SignatureService};
 use log::info;
@@ -25,7 +25,7 @@ impl Consensus {
         signature_service: SignatureService,
         store: Store,
         mempool: Mempool,
-        commit_channel: Sender<Block>,
+        commit_channel: Sender<Propose>,
     ) -> ConsensusResult<()> {
         info!(
             "Consensus timeout delay set to {} ms",

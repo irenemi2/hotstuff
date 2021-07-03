@@ -14,7 +14,7 @@ use std::fmt;
 pub mod messages_tests;
 
 #[derive(Serialize, Deserialize, Default, Clone)]
-pub struct Block {
+pub struct Propose {
     pub qc: QC,
     pub tc: Option<TC>,
     pub author: PublicKey,
@@ -23,7 +23,7 @@ pub struct Block {
     pub signature: Signature,
 }
 
-impl Block {
+impl Propose {
     pub async fn new(
         qc: QC,
         tc: Option<TC>,
@@ -45,7 +45,7 @@ impl Block {
     }
 
     pub fn genesis() -> Self {
-        Block::default()
+        Propose::default()
     }
 
     pub fn previous(&self) -> &Digest {
@@ -76,7 +76,7 @@ impl Block {
     }
 }
 
-impl Hash for Block {
+impl Hash for Propose {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         hasher.update(self.author.0);
@@ -89,7 +89,7 @@ impl Hash for Block {
     }
 }
 
-impl fmt::Debug for Block {
+impl fmt::Debug for Propose {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(
             f,
@@ -103,7 +103,7 @@ impl fmt::Debug for Block {
     }
 }
 
-impl fmt::Display for Block {
+impl fmt::Display for Propose {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "B{}", self.round)
     }
@@ -119,7 +119,7 @@ pub struct Vote {
 
 impl Vote {
     pub async fn new(
-        block: &Block,
+        block: &Propose,
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {

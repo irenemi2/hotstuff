@@ -37,7 +37,7 @@ fn spawn_nodes(
                 .unwrap();
 
                 match rx_commit.recv().await {
-                    Some(block) => assert_eq!(block, Block::genesis()),
+                    Some(block) => assert_eq!(block, Propose::genesis()),
                     _ => assert!(false),
                 }
             })

@@ -3,7 +3,7 @@ use crate::config::{Committee, Parameters};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::leader::LeaderElector;
 use crate::mempool::{MempoolDriver, NodeMempool};
-use crate::messages::{Block, Timeout, Vote, QC, TC};
+use crate::messages::{Propose, Timeout, Vote, QC, TC};
 use crate::synchronizer::Synchronizer;
 use crate::timer::Timer;
 use async_recursion::async_recursion;
@@ -26,11 +26,11 @@ pub type RoundNumber = u64;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum CoreMessage {
-    Propose(Block),
+    Propose(Propose),
     Vote(Vote),
     Timeout(Timeout),
     TC(TC),
-    LoopBack(Block),
+    LoopBack(Propose),
     SyncRequest(Digest, PublicKey),
 }
 
@@ -45,7 +45,7 @@ pub struct Core<Mempool> {
     synchronizer: Synchronizer,
     core_channel: Receiver<CoreMessage>,
     network_channel: Sender<NetMessage>,
-    commit_channel: Sender<Block>,
+    commit_channel: Sender<Propose>,
     round: RoundNumber,
     last_voted_round: RoundNumber,
     high_qc: QC,
@@ -66,7 +66,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         synchronizer: Synchronizer,
         core_channel: Receiver<CoreMessage>,
         network_channel: Sender<NetMessage>,
-        commit_channel: Sender<Block>,
+        commit_channel: Sender<Propose>,
     ) -> Self {
         let aggregator = Aggregator::new(committee.clone());
         Self {
@@ -89,7 +89,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         }
     }
 
-    async fn store_block(&mut self, block: &Block) -> ConsensusResult<()> {
+    async fn store_block(&mut self, block: &Propose) -> ConsensusResult<()> {
         let key = block.digest().to_vec();
         let value = bincode::serialize(block).expect("Failed to serialize block");
         self.store
@@ -129,7 +129,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         self.last_voted_round = max(self.last_voted_round, target);
     }
 
-    async fn make_vote(&mut self, block: &Block) -> Option<Vote> {
+    async fn make_vote(&mut self, block: &Propose) -> Option<Vote> {
         // Check if we can vote for this block.
         let safety_rule_1 = block.round > self.last_voted_round;
         let mut safety_rule_2 = block.qc.round + 1 == block.round;
@@ -253,7 +253,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             .mempool_driver
             .get(self.parameters.max_payload_size)
             .await;
-        let block = Block::new(
+        let block = Propose::new(
             self.high_qc.clone(),
             tc,
             self.name,
@@ -288,7 +288,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     }
 
     #[async_recursion]
-    async fn process_block(&mut self, block: &Block) -> ConsensusResult<()> {
+    async fn process_block(&mut self, block: &Propose) -> ConsensusResult<()> {
         debug!("Processing {:?}", block);
 
         // Let's see if we have the last three ancestors of the block, that is:
@@ -350,7 +350,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         Ok(())
     }
 
-    async fn handle_proposal(&mut self, block: &Block) -> ConsensusResult<()> {
+    async fn handle_proposal(&mut self, block: &Propose) -> ConsensusResult<()> {
         let digest = block.digest();
 
         // Ensure the block proposer is the right leader for the round.

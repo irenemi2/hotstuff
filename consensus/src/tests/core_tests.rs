@@ -8,7 +8,7 @@ async fn core(
     name: PublicKey,
     secret: SecretKey,
     store_path: &str,
-) -> (Sender<CoreMessage>, Receiver<NetMessage>, Receiver<Block>) {
+) -> (Sender<CoreMessage>, Receiver<NetMessage>, Receiver<Propose>) {
     let (tx_core, rx_core) = channel(1);
     let (tx_network, rx_network) = channel(3);
     let (tx_commit, rx_commit) = channel(1);
@@ -96,7 +96,7 @@ async fn generate_proposal() {
     let (next_leader, next_leader_key) = leader_keys(2);
 
     // Make a block, votes, and QC.
-    let block = Block::new_from_key(QC::genesis(), leader, 1, Vec::new(), &leader_key);
+    let block = Propose::new_from_key(QC::genesis(), leader, 1, Vec::new(), &leader_key);
     let hash = block.digest();
     let votes: Vec<_> = keys()
         .iter()
@@ -163,7 +163,7 @@ async fn commit_block() {
 
     // Ensure the core commits the head.
     match rx_commit.recv().await {
-        Some(b) => assert_eq!(b, Block::genesis()),
+        Some(b) => assert_eq!(b, Propose::genesis()),
         _ => assert!(false),
     }
 }

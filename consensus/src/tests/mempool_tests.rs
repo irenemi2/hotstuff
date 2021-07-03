@@ -1,6 +1,6 @@
 use super::*;
 use crate::common::{block, keys, MockMempool};
-use crate::messages::{Block, QC};
+use crate::messages::{Propose, QC};
 use async_trait::async_trait;
 use rand::rngs::StdRng;
 use rand::RngCore as _;
@@ -49,7 +49,7 @@ async fn verify_wait() {
     let payload = vec![payload_1.to_vec(), payload_2.to_vec()];
 
     let (public_key, secret_key) = keys().pop().unwrap();
-    let block = Block::new_from_key(QC::genesis(), public_key, 1, payload, &secret_key);
+    let block = Propose::new_from_key(QC::genesis(), public_key, 1, payload, &secret_key);
 
     // Ensure the driver replies with WAIT.
     match mempool_driver.verify(&block).await {

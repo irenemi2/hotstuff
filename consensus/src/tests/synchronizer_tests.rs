@@ -58,7 +58,7 @@ async fn get_genesis_previous_block() {
 
     // Ask the predecessor of 'block' to the synchronizer.
     match synchronizer.get_previous_block(&block()).await {
-        Ok(Some(b)) => assert_eq!(b, Block::genesis()),
+        Ok(Some(b)) => assert_eq!(b, Propose::genesis()),
         _ => assert!(false),
     }
 }

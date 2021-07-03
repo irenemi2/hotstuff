@@ -1,7 +1,7 @@
 use crate::config::Committee;
 use crate::core::CoreMessage;
 use crate::error::ConsensusResult;
-use crate::messages::{Block, QC};
+use crate::messages::{Propose, QC};
 use crate::timer::Timer;
 use bytes::Bytes;
 use crypto::Hash as _;
@@ -20,7 +20,7 @@ pub mod synchronizer_tests;
 
 pub struct Synchronizer {
     store: Store,
-    inner_channel: Sender<Block>,
+    inner_channel: Sender<Propose>,
 }
 
 impl Synchronizer {
@@ -32,7 +32,7 @@ impl Synchronizer {
         core_channel: Sender<CoreMessage>,
         sync_retry_delay: u64,
     ) -> Self {
-        let (tx_inner, mut rx_inner): (_, Receiver<Block>) = channel(1000);
+        let (tx_inner, mut rx_inner): (_, Receiver<Propose>) = channel(1000);
         let mut timer = Timer::new();
         timer.schedule(sync_retry_delay, true).await;
 
@@ -85,7 +85,7 @@ impl Synchronizer {
         }
     }
 
-    async fn waiter(mut store: Store, wait_on: Digest, deliver: Block) -> ConsensusResult<Block> {
+    async fn waiter(mut store: Store, wait_on: Digest, deliver: Propose) -> ConsensusResult<Propose> {
         let _ = store.notify_read(wait_on.to_vec()).await?;
         Ok(deliver)
     }
@@ -106,9 +106,9 @@ impl Synchronizer {
         }
     }
 
-    async fn get_previous_block(&mut self, block: &Block) -> ConsensusResult<Option<Block>> {
+    async fn get_previous_block(&mut self, block: &Propose) -> ConsensusResult<Option<Propose>> {
         if block.qc == QC::genesis() {
-            return Ok(Some(Block::genesis()));
+            return Ok(Some(Propose::genesis()));
         }
         let previous = block.previous();
         match self.store.read(previous.to_vec()).await? {
@@ -124,8 +124,8 @@ impl Synchronizer {
 
     pub async fn get_ancestors(
         &mut self,
-        block: &Block,
-    ) -> ConsensusResult<Option<(Block, Block)>> {
+        block: &Propose,
+    ) -> ConsensusResult<Option<(Propose, Propose)>> {
         let b1 = match self.get_previous_block(block).await? {
             Some(b) => b,
             None => return Ok(None),

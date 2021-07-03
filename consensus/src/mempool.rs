@@ -1,6 +1,6 @@
 use crate::core::{CoreMessage, RoundNumber};
 use crate::error::{ConsensusError, ConsensusResult};
-use crate::messages::Block;
+use crate::messages::Propose;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use futures::future::FutureExt as _;
@@ -40,7 +40,7 @@ pub trait NodeMempool: Send + Sync {
 
 // TODO [issue #3] Merge the mempool driver with the synchronizer.
 
-type DriverMessage = (Vec<Vec<u8>>, Block, Receiver<()>);
+type DriverMessage = (Vec<Vec<u8>>, Propose, Receiver<()>);
 
 pub struct MempoolDriver<Mempool> {
     inner_channel: Sender<DriverMessage>,
@@ -85,9 +85,9 @@ impl<Mempool: 'static + NodeMempool> MempoolDriver<Mempool> {
 
     async fn waiter(
         mut missing: Vec<(Vec<u8>, Store)>,
-        deliver: Block,
+        deliver: Propose,
         mut handler: Receiver<()>,
-    ) -> ConsensusResult<Option<Block>> {
+    ) -> ConsensusResult<Option<Propose>> {
         let waiting: Vec<_> = missing
             .iter_mut()
             .map(|(x, y)| y.notify_read(x.to_vec()))
@@ -100,7 +100,7 @@ impl<Mempool: 'static + NodeMempool> MempoolDriver<Mempool> {
         }
     }
 
-    pub async fn verify(&mut self, block: &Block) -> ConsensusResult<bool> {
+    pub async fn verify(&mut self, block: &Propose) -> ConsensusResult<bool> {
         match self.mempool.verify(&block.payload).await {
             PayloadStatus::Accept => Ok(true),
             PayloadStatus::Reject => bail!(ConsensusError::InvalidPayload),
@@ -120,7 +120,7 @@ impl<Mempool: 'static + NodeMempool> MempoolDriver<Mempool> {
         }
     }
 
-    pub async fn cleanup(&mut self, b0: &Block, b1: &Block) {
+    pub async fn cleanup(&mut self, b0: &Propose, b1: &Propose) {
         // Cleanup the driver.
         let round = b1.round;
         for (k, v) in &self.pending {
