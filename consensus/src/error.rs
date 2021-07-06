@@ -62,4 +62,7 @@ pub enum ConsensusError {
 
     #[error("Invalid payload")]
     InvalidPayload,
+
+    #[error("TC and SS conflict")]
+    TCSSConflict,
 }

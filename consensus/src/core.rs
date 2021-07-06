@@ -23,6 +23,7 @@ use tokio::time::{sleep, Duration};
 pub mod core_tests;
 
 pub type RoundNumber = u64;
+pub type Height = u64;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum CoreMessage {
