@@ -64,8 +64,11 @@ pub enum ConsensusError {
     #[error("Invalid payload")]
     InvalidPayload,
 
-    #[error("TC and QC conflict")]
-    QCTCConflict,
+    #[error("Non-locking TC")]
+    TCNoLock,
+
+    #[error("TC and SS conflict")]
+    TCSSConflict,
 
     #[error("Unknown vote type {0}")]
     UnknownVoteType(VoteType),
