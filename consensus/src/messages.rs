@@ -109,6 +109,7 @@ impl Block {
         round: RoundNumber,
         payload: Vec<Vec<u8>>,
         author: PublicKey,
+        mut ptsignature: SignatureService,
         mut signature_service: SignatureService,
     ) -> Self {
         let block = Self {
@@ -197,9 +198,9 @@ impl Block {
         let pt = ProposedTuple {
             parent: parent,
             block: self.digest(),
-            self.round,
             self.author,
-            self.ptsignature,
+            self.round,
+            self.signature,
         };
         pt.signature.verify(&pt.digest(), &pt.author)?;
 
@@ -224,12 +225,13 @@ impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(
             f,
-            "{}: B({}, {}, {:?}, {:?}, {})",
+            "{}: B({}, {}, {:?}, {:?},{:?} {})",
             self.digest(),
             self.author,
             self.round,
             self.qc,
             self.tc,
+            self.ss,
             self.payload.iter().map(|x| x.len()).sum::<usize>(),
         )
     }
@@ -243,38 +245,51 @@ impl fmt::Display for Block {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Vote {
-    pub vote_type: VoteType,
+    // pub vote_type: VoteType,
     pub hash: Digest, // Block hash
     pub round: RoundNumber,
     pub author: PublicKey,
+    pub ptsignature: Signature,
     pub signature: Signature,
 }
 
 impl Vote {
     pub async fn new(
-        vote_type: VoteType,
+        // vote_type: VoteType,
+        block: &Block,
         hash: Digest,
         round: RoundNumber,
         author: PublicKey,
+        mut ptsignature: SignatureService,
         mut signature_service: SignatureService,
     ) -> Self {
         let vote = Self {
-            vote_type,
+            // vote_type,
             hash,
             round,
             author,
+            ptsignature:Signature::default(),
             signature: Signature::default(),
         };
         let signature = signature_service.request_signature(vote.digest()).await;
-        Self { signature, ..vote }
+        let parent = match block.previous() {
+            Ok(hash) => hash,
+            Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, block); },
+        };
+        let pt = ProposedTuple::new(parent, block.digest(), round, author, signature_service).await;
+
+        Self { 
+            ptsignature: pt.signature,
+            signature: signature,
+            ..vote }
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
         // Ensure correct VoteType
-        ensure!(
-            self.vote_type == 1 || self.vote_type == 2,
-            ConsensusError::UnknownVoteType(self.vote_type)
-        );
+        // ensure!(
+        //     self.vote_type == 1 || self.vote_type == 2,
+        //     ConsensusError::UnknownVoteType(self.vote_type)
+        // );
 
         // Ensure the authority has voting rights.
         ensure!(
@@ -291,7 +306,7 @@ impl Vote {
 impl Hash for Vote {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
-        hasher.update(self.vote_type.to_le_bytes());
+        // hasher.update(self.vote_type.to_le_bytes());
         hasher.update(self.hash.clone());
         hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
@@ -300,13 +315,13 @@ impl Hash for Vote {
 
 impl fmt::Debug for Vote {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "V{}({}, {}, {})", self.vote_type, self.author, self.round, self.hash)
+        write!(f, "V{}({}, {})", self.author, self.round, self.hash)
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct QC {
-    pub vote_type: VoteType,
+    // pub vote_type: VoteType,
     pub hash: Digest,
     pub round: RoundNumber,
     pub votes: Vec<(PublicKey, Signature)>,
@@ -321,12 +336,12 @@ impl QC {
         self.hash == Digest::default() && self.round != 0
     }
 
-    pub fn verify(&self, committee: &Committee, expected_vote_type: VoteType) -> ConsensusResult<()> {
+    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
         // Ensure QC type matched expectation
-        ensure!(
-            self.vote_type == expected_vote_type,
-            ConsensusError::InvalidVoteType(self.vote_type, expected_vote_type)
-        );
+        // ensure!(
+        //     self.vote_type == expected_vote_type,
+        //     ConsensusError::InvalidVoteType(self.vote_type, expected_vote_type)
+        // );
 
         // Ensure the QC has a quorum.
         let mut weight = 0;
@@ -351,7 +366,7 @@ impl QC {
 impl Hash for QC {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
-        hasher.update(self.vote_type.to_le_bytes());
+        // hasher.update(self.vote_type.to_le_bytes());
         hasher.update(self.hash.clone());
         hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
@@ -360,13 +375,13 @@ impl Hash for QC {
 
 impl fmt::Debug for QC {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "QC(V{}, {}, {})", self.vote_type, self.hash, self.round)
+        write!(f, "QC(V{}, {})", self.hash, self.round)
     }
 }
 
 impl PartialEq for QC {
     fn eq(&self, other: &Self) -> bool {
-        self.vote_type == other.vote_type && self.hash == other.hash && self.round == other.round
+        self.hash == other.hash && self.round == other.round
     }
 }
 
@@ -410,7 +425,7 @@ impl Timeout {
 
         // Check the embedded QC.
         if self.high_qc != QC::genesis() {
-            self.high_qc.verify(committee, 1)?;
+            self.high_qc.verify(committee)?;
         }
         Ok(())
     }
@@ -471,7 +486,18 @@ impl TC {
     pub fn high_qc_rounds(&self) -> Vec<RoundNumber> {
         self.votes.iter().map(|timeout| &timeout.high_qc.round).cloned().collect() // CHECK: stealing ownership?
     }
+    //locked digest?
+    pub fn locked_digest(&self) -> Option<&Digest> {
+        let highest_qc_round_vec = self.high_qc_rounds();
+        let highest_qc_round = highest_qc_round_vec.iter().max().expect("Empty TC");
 
+        for timeout in self.votes.iter() {
+            if timeout.high_qc.round == *highest_qc_round {
+                return Some(&timeout.high_qc.hash);
+            }
+        }
+        None
+    }
     pub fn highest_digest(&self) -> Option<&Digest> {
         let highest_qc_round_vec = self.high_qc_rounds();
         let highest_qc_round = highest_qc_round_vec.iter().max().expect("Empty TC");
@@ -488,5 +514,123 @@ impl TC {
 impl fmt::Debug for TC {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "TC({}, {:?}, {:?})", self.round, self.high_qc_rounds(), self.highest_digest())
+    }
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Status{
+    pub high_qc: QC,
+    pub round: RoundNumber,
+    pub author: PublicKey,
+    pub signature: Signature,
+}
+impl Status {
+    pub async fn new(
+        high_qc: QC,
+        round: RoundNumber,
+        author: PublicKey,
+        mut signature_service: SignatureService,
+    ) -> Self {
+        let timeout = Self {
+            high_qc,
+            round,
+            author,
+            signature: Signature::default(),
+        };
+        let signature = signature_service.request_signature(timeout.digest()).await;
+        Self {
+            signature,
+            ..timeout
+        }
+    }
+
+    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
+        // Ensure the authority has voting rights.
+        ensure!(
+            committee.stake(&self.author) > 0,
+            ConsensusError::UnknownAuthority(self.author)
+        );
+
+        // Check the signature.
+        self.signature.verify(&self.digest(), &self.author)?;
+
+        // Check the embedded QC.
+        if self.high_qc != QC::genesis() {
+            self.high_qc.verify(committee)?;
+        }
+        Ok(())
+    }
+}
+
+impl Hash for Status {
+    fn digest(&self) -> Digest {
+        let mut hasher = Sha512::new();
+        hasher.update(self.round.to_le_bytes());
+        hasher.update(self.high_qc.round.to_le_bytes()); // ???: Need vote_type?
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+    }
+}
+
+impl fmt::Debug for Status {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "T({}, {}, {:?})", self.author, self.round, self.high_qc)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SS{
+    pub round: RoundNumber,
+    pub votes: Vec<Status>,
+}
+impl SS {
+    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
+        // Ensure the TC has a quorum.
+        let mut weight = 0;
+        let mut used = HashSet::new();
+        for timeout in self.votes.iter() {
+            let name = &timeout.author;
+
+            ensure!(!used.contains(name), ConsensusError::AuthorityReuse(*name));
+            let voting_rights = committee.stake(name);
+            ensure!(voting_rights > 0, ConsensusError::UnknownAuthority(*name));
+            used.insert(*name);
+            weight += voting_rights;
+        }
+        ensure!(
+            weight >= committee.quorum_threshold(),
+            ConsensusError::TCRequiresQuorum
+        );
+
+        // Check the signatures.
+        for timeout in &self.votes {
+            ensure!(
+                self.round == timeout.round,
+                ConsensusError::MismatchTCTimeout(self.round, timeout.round)
+            );
+
+            timeout.verify(committee)?;
+        }
+        Ok(())
+    }
+
+    pub fn high_qc_rounds(&self) -> Vec<RoundNumber> {
+        self.votes.iter().map(|timeout| &timeout.high_qc.round).cloned().collect() // CHECK: stealing ownership?
+    }
+
+    pub fn highest_digest(&self) -> Option<&Digest> {
+        let highest_qc_round_vec = self.high_qc_rounds();
+        let highest_qc_round = highest_qc_round_vec.iter().max().expect("Empty TC");
+
+        for timeout in self.votes.iter() {
+            if timeout.high_qc.round == *highest_qc_round {
+                return Some(&timeout.high_qc.hash);
+            }
+        }
+        None
+    }
+}
+
+impl fmt::Debug for SS {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "SS({}, {:?}, {:?})", self.round, self.high_qc_rounds(), self.highest_digest())
     }
 }
