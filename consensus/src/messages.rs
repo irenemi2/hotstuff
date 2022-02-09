@@ -109,7 +109,7 @@ impl Block {
         round: RoundNumber,
         payload: Vec<Vec<u8>>,
         author: PublicKey,
-        mut ptsignature: SignatureService,
+        ptsignature: SignatureService,
         mut signature_service: SignatureService,
     ) -> Self {
         let block = Self {
@@ -195,14 +195,14 @@ impl Block {
         }
 
         // Check the ptsignature.
-        let pt = ProposedTuple {
-            parent: parent,
-            block: self.digest(),
-            self.author,
-            self.round,
-            self.signature,
-        };
-        pt.signature.verify(&pt.digest(), &pt.author)?;
+            // let pt = ProposedTuple {
+            //     parent: parent,
+            //     block: self.digest(),
+            //     self.round,
+            //     self.author,
+            //     self.signature,
+            // };
+        self.ptsignature.verify(&self.digest(), &self.author)?;
 
         Ok(())
     }
@@ -257,16 +257,14 @@ impl Vote {
     pub async fn new(
         // vote_type: VoteType,
         block: &Block,
-        hash: Digest,
-        round: RoundNumber,
         author: PublicKey,
-        mut ptsignature: SignatureService,
+        //
         mut signature_service: SignatureService,
     ) -> Self {
         let vote = Self {
             // vote_type,
-            hash,
-            round,
+            hash: block.digest(),
+            round: block.round,
             author,
             ptsignature:Signature::default(),
             signature: Signature::default(),
@@ -276,7 +274,7 @@ impl Vote {
             Ok(hash) => hash,
             Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, block); },
         };
-        let pt = ProposedTuple::new(parent, block.digest(), round, author, signature_service).await;
+        let pt = ProposedTuple::new(parent, block.digest(), block.round, author, signature_service).await;
 
         Self { 
             ptsignature: pt.signature,
@@ -299,6 +297,9 @@ impl Vote {
 
         // Check the signature.
         self.signature.verify(&self.digest(), &self.author)?;
+        
+        //check ptsignature?
+        self.ptsignature.verify(&self.digest(), &self.author)?;
         Ok(())
     }
 }
@@ -357,7 +358,7 @@ impl QC {
             weight >= committee.quorum_threshold(),
             ConsensusError::QCRequiresQuorum
         );
-
+        //check pt signature?
         // Check the signatures.
         Signature::verify_batch(&self.digest(), &self.votes).map_err(ConsensusError::from)
     }
@@ -390,11 +391,13 @@ pub struct Timeout {
     pub high_qc: QC,
     pub round: RoundNumber,
     pub author: PublicKey,
+    pub ptsignature:Signature,
     pub signature: Signature,
 }
 
 impl Timeout {
     pub async fn new(
+        block:&Block,
         high_qc: QC,
         round: RoundNumber,
         author: PublicKey,
@@ -404,11 +407,19 @@ impl Timeout {
             high_qc,
             round,
             author,
+            ptsignature:Signature::default(),
             signature: Signature::default(),
         };
         let signature = signature_service.request_signature(timeout.digest()).await;
+        let parent = match block.previous() {
+            Ok(hash) => hash,
+            Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, block); },
+        };
+        let pt = ProposedTuple::new(parent, block.digest(), round, author, signature_service).await;
+
         Self {
-            signature,
+            ptsignature: pt.signature,
+            signature: signature,
             ..timeout
         }
     }
@@ -422,7 +433,7 @@ impl Timeout {
 
         // Check the signature.
         self.signature.verify(&self.digest(), &self.author)?;
-
+        self.ptsignature.verify(&self.digest(), &self.author)?;
         // Check the embedded QC.
         if self.high_qc != QC::genesis() {
             self.high_qc.verify(committee)?;
@@ -519,6 +530,7 @@ impl fmt::Debug for TC {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Status{
     pub high_qc: QC,
+    pub high_tc:TC,
     pub round: RoundNumber,
     pub author: PublicKey,
     pub signature: Signature,
@@ -526,20 +538,22 @@ pub struct Status{
 impl Status {
     pub async fn new(
         high_qc: QC,
+        high_tc:TC,
         round: RoundNumber,
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
-        let timeout = Self {
+        let status = Self {
             high_qc,
+            high_tc,
             round,
             author,
             signature: Signature::default(),
         };
-        let signature = signature_service.request_signature(timeout.digest()).await;
+        let signature = signature_service.request_signature(status.digest()).await;
         Self {
             signature,
-            ..timeout
+            ..status
         }
     }
 
@@ -557,6 +571,9 @@ impl Status {
         if self.high_qc != QC::genesis() {
             self.high_qc.verify(committee)?;
         }
+        
+        self.high_tc.verify(committee)?;
+        
         Ok(())
     }
 }
@@ -583,11 +600,11 @@ pub struct SS{
 }
 impl SS {
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
-        // Ensure the TC has a quorum.
+        // Ensure the SS has a quorum.
         let mut weight = 0;
         let mut used = HashSet::new();
-        for timeout in self.votes.iter() {
-            let name = &timeout.author;
+        for status in self.votes.iter() {
+            let name = &status.author;
 
             ensure!(!used.contains(name), ConsensusError::AuthorityReuse(*name));
             let voting_rights = committee.stake(name);
@@ -601,28 +618,28 @@ impl SS {
         );
 
         // Check the signatures.
-        for timeout in &self.votes {
+        for status in &self.votes {
             ensure!(
-                self.round == timeout.round,
-                ConsensusError::MismatchTCTimeout(self.round, timeout.round)
+                self.round == status.round,
+                ConsensusError::MismatchTCTimeout(self.round, status.round)
             );
 
-            timeout.verify(committee)?;
+            status.verify(committee)?;
         }
         Ok(())
     }
 
     pub fn high_qc_rounds(&self) -> Vec<RoundNumber> {
-        self.votes.iter().map(|timeout| &timeout.high_qc.round).cloned().collect() // CHECK: stealing ownership?
+        self.votes.iter().map(|status| &status.high_qc.round).cloned().collect() // CHECK: stealing ownership?
     }
-
+    //check if needs to be highest tc?
     pub fn highest_digest(&self) -> Option<&Digest> {
         let highest_qc_round_vec = self.high_qc_rounds();
         let highest_qc_round = highest_qc_round_vec.iter().max().expect("Empty TC");
 
-        for timeout in self.votes.iter() {
-            if timeout.high_qc.round == *highest_qc_round {
-                return Some(&timeout.high_qc.hash);
+        for status in self.votes.iter() {
+            if status.high_qc.round == *highest_qc_round {
+                return Some(&status.high_qc.hash);
             }
         }
         None
