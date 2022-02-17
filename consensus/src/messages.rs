@@ -457,13 +457,16 @@ impl fmt::Debug for Timeout {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize,Default)]
 pub struct TC {
     pub round: RoundNumber,
     pub votes: Vec<Timeout>,
 }
 
 impl TC {
+    pub fn genesis() -> Self {
+        TC::default()
+    }
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
         // Ensure the TC has a quorum.
         let mut weight = 0;

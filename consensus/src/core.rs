@@ -88,7 +88,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             last_voted_round: 0,
             //locked_vote1_qc: QC::genesis(),
             high_qc: QC::genesis(),
-            high_tc,
+            high_tc:TC::genesis(),
             timer: Timer::new(),
             aggregator,
             latest_commit_digest: Some(Block::genesis().digest()), // TODO: (1) remove option; (2) change to use Digest::default() for genesis block digest for consistency (need to change digest impl for Block)
