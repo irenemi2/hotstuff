@@ -255,7 +255,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
                 // Make a new block if we are the next leader.
                 if self.name == self.leader_elector.get_leader(self.round) {
-                    self.generate_proposal(None).await?;
+                    self.generate_proposal(None,None).await?;
                 }
             }
         //}
@@ -298,7 +298,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             self.transmit(&message, None).await?;
             self.handle_status(&status).await;
             // if self.name == self.leader_elector.get_leader(self.round) {
-            //     self.generate_proposal(Some(tc)).await?;
+            //     self.generate_proposal(Some(tc),None).await?;
             // }
         }
         Ok(())
@@ -309,7 +309,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             return Ok(());
         }
 
-        // Ensure the timeout is well formed.
+        // Ensure the status is well formed.
         status.verify(&self.committee)?;
 
         // Process the QC embedded in the timeout.
@@ -327,23 +327,23 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             //self.transmit(&message, None).await?;
             // self.update_high_tc(&ss);
             // Make a new block if we are the next leader.
-            let message = CoreMessage::Status(status.clone());
-            self.transmit(&message, None).await?;
+            // let message = CoreMessage::Status(status.clone());
+            // self.transmit(&message, None).await?;
             
             if self.name == self.leader_elector.get_leader(self.round) {
-                self.generate_proposal(Some(ss)).await?;
+                self.generate_proposal(None,Some(ss)).await?;
             }
         }
         Ok(())
     }
 
-    async fn handle_tc(&mut self, tc: TC) -> ConsensusResult<()> {
-        self.advance_round(tc.round).await;
-        if self.name == self.leader_elector.get_leader(self.round) {
-            self.generate_proposal(Some(tc)).await?;
-        }
-        Ok(())
-    }
+    // async fn handle_tc(&mut self, tc: TC) -> ConsensusResult<()> {
+    //     self.advance_round(tc.round).await;
+    //     if self.name == self.leader_elector.get_leader(self.round) {
+    //         self.generate_proposal(Some(tc),None).await?;
+    //     }
+    //     Ok(())
+    // }
 
     #[async_recursion]
     async fn advance_round(&mut self, round: RoundNumber) {
@@ -364,14 +364,14 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
     #[async_recursion]
     //define ss
-    async fn generate_proposal(&mut self, tc: Option<TC>) -> ConsensusResult<()> {
+    async fn generate_proposal(&mut self, tc: Option<TC>,ss: Option<SS>) -> ConsensusResult<()> {
         // Make a new block.
-        let ref ss: Option<SS>;
-        if tc.is_some() {
-            ss = Some(self.high_tc.clone());
-        } else {
-            ss = Some(self.high_qc.clone());
-        }
+        //let ref ss: Option<SS>;
+        // if tc.is_some() {
+        //     tc = Some(self.high_tc.clone());
+        // } else {
+        //     ss = Some(self.high_qc.clone());
+        // }
         let payload = self
             .mempool_driver
             .get(self.parameters.max_payload_size)
@@ -553,7 +553,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         block.verify(&self.committee)?;
 
         if let ref qc= block.qc {
-            // Process the QC (if any). This may allow us to advance round.
+            // Process the QC. This may allow us to advance round.
             self.process_qc(qc).await;
         } else if let Some(ref tc) = block.tc {
             // Process the TC (if any). This may allow us to advance round.
@@ -589,17 +589,17 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Also, schedule a timer in case we don't hear from the leader.
         self.schedule_timer().await;
         if self.name == self.leader_elector.get_leader(self.round) {
-            self.generate_proposal(None)
+            self.generate_proposal(None,None)
                 .await
                 .expect("Failed to send the first block");
         }
-
+        let block;
         // This is the main loop: it processes incoming blocks and votes,
         // and receive timeout notifications from our Timeout Manager.
         loop {
             
             let result = tokio::select!{
-                //let block= CoreMessage::Propose(block);
+                
                 Some(message) = self.core_channel.recv() => {
                     match message {
                         CoreMessage::Propose(block) => self.handle_proposal(&block).await,
