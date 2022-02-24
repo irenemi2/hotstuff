@@ -1,0 +1,40 @@
+
+-----------------------------------------
+ RESULTS:
+-----------------------------------------
+ Committee size: 4 nodes
+ Input rate: x txs
+ Transaction size: 512 B
+
+ Variable value: X=0
+ TPS: 14 +/- 2 tx/s
+ Latency: 179 +/- 15 ms
+
+ Variable value: X=12
+ TPS: 15 +/- 2 tx/s
+ Latency: 176 +/- 25 ms
+
+ Variable value: X=10000
+ TPS: 9999 +/- 1 tx/s
+ Latency: 171 +/- 10 ms
+
+ Variable value: X=15000
+ TPS: 14953 +/- 2 tx/s
+ Latency: 249 +/- 32 ms
+
+ Variable value: X=20000
+ TPS: 19994 +/- 2 tx/s
+ Latency: 312 +/- 9 ms
+
+ Variable value: X=25000
+ TPS: 24939 +/- 0 tx/s
+ Latency: 273 +/- 0 ms
+
+ Variable value: X=30000
+ TPS: 29976 +/- 3 tx/s
+ Latency: 324 +/- 9 ms
+
+ Variable value: X=40000
+ TPS: 32591 +/- 0 tx/s
+ Latency: 1869 +/- 0 ms
+-----------------------------------------

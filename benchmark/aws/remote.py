@@ -35,7 +35,7 @@ class Bench:
         self.settings = self.manager.settings
         try:
             ctx.connect_kwargs.pkey = RSAKey.from_private_key_file(
-                self.manager.settings.key_path
+                self.manager.settings.key_path,password
             )
             self.connect = ctx.connect_kwargs
         except (IOError, PasswordRequiredException, SSHException) as e:
@@ -53,11 +53,13 @@ class Bench:
     def install(self):
         Print.info('Installing rust and cloning the repo...')
         cmd = [
+            'export DEBIAN_FRONTEND=noninteractive',
             'sudo apt-get update',
             'sudo apt-get -y upgrade',
             'sudo apt-get -y autoremove',
 
             # The following dependencies prevent the error: [error: linker `cc` not found].
+
             'sudo apt-get -y install build-essential',
             'sudo apt-get -y install cmake',
 
