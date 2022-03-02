@@ -48,7 +48,7 @@ pub struct Core<Mempool> {
     commit_channel: Sender<Block>,
     round: RoundNumber,
     last_voted_round: RoundNumber,
-    //locked_vote1_qc: QC,
+    block:Block,
     high_qc: QC,
     high_tc:TC,
     timer: Timer<RoundNumber>,
@@ -86,7 +86,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             core_channel,
             round: 1,
             last_voted_round: 0,
-            //locked_vote1_qc: QC::genesis(),
+            block:Block::genesis(),
             high_qc: QC::genesis(),
             high_tc:TC::genesis(),
             timer: Timer::new(),
@@ -167,6 +167,11 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     fn update_high_qc(&mut self, qc: &QC) {
         if qc.round > self.high_qc.round {
             self.high_qc = qc.clone();
+        }
+    }
+    fn update_highest_block(&mut self, block: &Block) {
+        if block.round > self.block.round {
+            self.block = block.clone();
         }
     }
     fn update_high_tc(&mut self, tc: &TC) {
@@ -255,7 +260,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
                 // Make a new block if we are the next leader.
                 if self.name == self.leader_elector.get_leader(self.round) {
-                    self.generate_proposal(None,None).await?;
+                    self.generate_proposal(None).await?;
                 }
             }
         //}
@@ -273,7 +278,8 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
         // Process the QC embedded in the timeout.
         // self.process_qc(&timeout.high_qc).await;
-
+        let message = CoreMessage::Timeout(timeout.clone());
+        self.transmit(&message, None).await?;
         // Add the new vote to our aggregator and see if we have a quorum.
         if let Some(tc) = self.aggregator.add_timeout(timeout.clone())? {
             debug!("Assembled tc {:?}", tc);
@@ -282,9 +288,9 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             self.advance_round(tc.round).await;
 
             // Broadcast the TC.
-            //let message = CoreMessage::TC(tc.clone());
-            //self.transmit(&message, None).await?;
+            
             self.update_high_tc(&tc);
+
             let status = Status::new(
                 self.high_qc.clone(),
                 self.high_tc.clone(),
@@ -295,7 +301,9 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             .await;
             // Make a new block if we are the next leader.
             let message = CoreMessage::Status(status.clone());
-            self.transmit(&message, None).await?;
+            let sender:PublicKey;
+            sender=self.leader_elector.get_leader(self.round);
+            self.transmit(&message, Some(sender)).await?;
             self.handle_status(&status).await;
             // if self.name == self.leader_elector.get_leader(self.round) {
             //     self.generate_proposal(Some(tc),None).await?;
@@ -316,11 +324,11 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // self.process_qc(&timeout.high_qc).await;
 
         // Add the new vote to our aggregator and see if we have a quorum.
-        if let Some(ss) = self.aggregator.add_status(status.clone())? {
+        if let Some(ss )= self.aggregator.add_status(status.clone())? {
             debug!("Assembled ss {:?}", ss);
 
             // Try to advance the round.
-            self.advance_round(ss.round).await;
+            // self.advance_round(ss.round).await;
 
             // Broadcast the TC.
             //let message = CoreMessage::TC(tc.clone());
@@ -331,7 +339,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             // self.transmit(&message, None).await?;
             
             if self.name == self.leader_elector.get_leader(self.round) {
-                self.generate_proposal(None,Some(ss)).await?;
+                self.generate_proposal(Some(ss)).await?;
             }
         }
         Ok(())
@@ -364,22 +372,24 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
     #[async_recursion]
     //define ss
-    async fn generate_proposal(&mut self, tc: Option<TC>,ss: Option<SS>) -> ConsensusResult<()> {
+    async fn generate_proposal(&mut self, ss: Option<SS>) -> ConsensusResult<()> {
         // Make a new block.
-        //let ref ss: Option<SS>;
-        // if tc.is_some() {
-        //     tc = Some(self.high_tc.clone());
-        // } else {
-        //     ss = Some(self.high_qc.clone());
-        // }
+        let mut s=ss.clone();
+        let mut tc=ss.unwrap().highest_tc().clone();
+        if tc.unwrap().round==self.high_tc.round{
+            s=None;
+            tc=Some(self.high_tc.clone());
+        } else {
+            tc=None;
+        }
         let payload = self
             .mempool_driver
             .get(self.parameters.max_payload_size)
             .await;
         let block = Block::new(
-            self.high_qc,
+            self.high_qc.clone(),
             tc,
-            ss,
+            s,
             self.round,
             payload,
             self.name,
@@ -409,7 +419,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     }
 
     async fn process_qc(&mut self, qc: &QC) {
-        self.advance_round(qc.round).await;
+        // self.advance_round(qc.round).await;
         self.update_high_qc(qc);
     }
 
@@ -481,14 +491,15 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Ancestors vector has all ancestor blocks in reverse order (start: newest -> end: oldest)
         // Store the block only if we have already processed all its ancestors.
         // Don't store if the round doesn't match up to prevent DOS
-        if let qc = block.qc {
-            if qc.round+1 == block.round {
+        let qc = &block.qc;
+        if qc.round+1 == block.round {
                 self.store_block(block).await?;
-            }
-        } else {
-            debug!("Invalid block: {:?}", block);
-            assert!(false, "Invalid block");
-        }
+        
+        } 
+        // else {
+        //     debug!("Invalid block: {:?}", block);
+        //     assert!(false, "Invalid block");
+        // }
 
         // Cleanup the mempool.
         for b in ancestors.iter() {
@@ -552,14 +563,18 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Check the block is correctly formed.
         block.verify(&self.committee)?;
 
-        if let ref qc= block.qc {
-            // Process the QC. This may allow us to advance round.
-            self.process_qc(qc).await;
-        } else if let Some(ref tc) = block.tc {
+        let ref qc= block.qc ;
+            // Process the QC. 
+        self.process_qc(qc).await;
+        
+        if let Some(ref tc) = block.tc {
             // Process the TC (if any). This may allow us to advance round.
             self.advance_round(tc.round).await;
         }
-
+        else if let Some(ref ss) = block.ss {
+                // Process the SS (if any). This may allow us to advance round.
+                self.advance_round(ss.round).await;
+        }
         // Let's see if we have the block's data. If we don't, the mempool
         // will get it and then make us resume processing this block.
         if !self.mempool_driver.verify(block).await? {
@@ -584,16 +599,16 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         Ok(())
     }
 
-    pub async fn run(&mut self) -> ! {
+    pub async fn run(&mut self) {
         // Upon booting, generate the very first block (if we are the leader).
         // Also, schedule a timer in case we don't hear from the leader.
         self.schedule_timer().await;
         if self.name == self.leader_elector.get_leader(self.round) {
-            self.generate_proposal(None,None)
+            self.generate_proposal(None)
                 .await
                 .expect("Failed to send the first block");
         }
-        let block;
+        let block=self.block.clone();
         // This is the main loop: it processes incoming blocks and votes,
         // and receive timeout notifications from our Timeout Manager.
         loop {
@@ -609,10 +624,12 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                         CoreMessage::LoopBack(block) => self.process_block(&block).await,
                         CoreMessage::SyncRequest(digest, sender) => self.handle_sync_request(digest, sender).await,
                     }
+                    
                 },
                 Some(_) = self.timer.notifier.recv() => self.local_timeout_round(&block).await,
                 else => break,
             };
+
             match result {
                 Ok(()) => (),
                 Err(ConsensusError::StoreError(e)) => error!("{}", e),

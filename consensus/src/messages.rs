@@ -266,19 +266,18 @@ impl Vote {
             hash: block.digest(),
             round: block.round,
             author,
-            ptsignature:Signature::default(),
+            ptsignature:block.ptsignature.clone(),
             signature: Signature::default(),
         };
         let signature = signature_service.request_signature(vote.digest()).await;
-        let parent = match block.previous() {
-            Ok(hash) => hash,
-            Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, block); },
-        };
-        let pt = ProposedTuple::new(parent, block.digest(), block.round, author, signature_service).await;
+        // let parent = match block.previous() {
+        //     Ok(hash) => hash,
+        //     Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, block); },
+        // };
+        // let pt = ProposedTuple::new(parent, block.digest(), block.round, author, signature_service).await;
 
         Self { 
-            ptsignature: pt.signature,
-            signature: signature,
+            signature:signature,
             ..vote }
     }
 
@@ -407,18 +406,18 @@ impl Timeout {
             high_qc,
             round,
             author,
-            ptsignature:Signature::default(),
+            ptsignature:block.ptsignature.clone(),
             signature: Signature::default(),
         };
         let signature = signature_service.request_signature(timeout.digest()).await;
-        let parent = match block.previous() {
-            Ok(hash) => hash,
-            Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, block); },
-        };
-        let pt = ProposedTuple::new(parent, block.digest(), round, author, signature_service).await;
+        // let parent = match block.previous() {
+        //     Ok(hash) => hash,
+        //     Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, block); },
+        // };
+        // let pt = ProposedTuple::new(parent, block.digest(), round, author, signature_service).await;
 
         Self {
-            ptsignature: pt.signature,
+            // ptsignature: pt.signature,
             signature: signature,
             ..timeout
         }
@@ -512,22 +511,30 @@ impl TC {
         }
         None
     }
-    pub fn highest_digest(&self) -> Option<&Digest> {
-        let highest_qc_round_vec = self.high_qc_rounds();
-        let highest_qc_round = highest_qc_round_vec.iter().max().expect("Empty TC");
+    // pub fn highest_digest(&self) -> Option<&Digest> {
+    //     let highest_qc_round_vec = self.high_qc_rounds();
+    //     let highest_qc_round = highest_qc_round_vec.iter().max().expect("Empty TC");
 
-        for timeout in self.votes.iter() {
-            if timeout.high_qc.round == *highest_qc_round {
-                return Some(&timeout.high_qc.hash);
-            }
-        }
-        None
+    //     for timeout in self.votes.iter() {
+    //         if timeout.high_qc.round == *highest_qc_round {
+    //             return Some(&timeout.high_qc.hash);
+    //         }
+    //     }
+    //     None
+    // }
+}
+impl Hash for TC {
+    fn digest(&self) -> Digest {
+        let mut hasher = Sha512::new();
+        // hasher.update(self.vote_type.to_le_bytes());
+        // hasher.update(self.hash.clone());
+        hasher.update(self.round.to_le_bytes());
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
-
 impl fmt::Debug for TC {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "TC({}, {:?}, {:?})", self.round, self.high_qc_rounds(), self.highest_digest())
+        write!(f, "TC({}, {:?}, {:?})", self.round, self.high_qc_rounds(), self.locked_digest())
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -574,9 +581,10 @@ impl Status {
         if self.high_qc != QC::genesis() {
             self.high_qc.verify(committee)?;
         }
-        
+        // if let Some(ref tc) = self.high_tc {
+        //     tc.verify(committee)?;
+        // }
         self.high_tc.verify(committee)?;
-        
         Ok(())
     }
 }
@@ -592,7 +600,7 @@ impl Hash for Status {
 
 impl fmt::Debug for Status {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "T({}, {}, {:?})", self.author, self.round, self.high_qc)
+        write!(f, "S({}, {}, {:?})", self.author, self.round, self.high_qc)
     }
 }
 
@@ -624,25 +632,61 @@ impl SS {
         for status in &self.votes {
             ensure!(
                 self.round == status.round,
-                ConsensusError::MismatchTCTimeout(self.round, status.round)
+                ConsensusError::MismatchSSStatus(self.round, status.round)
             );
 
             status.verify(committee)?;
         }
         Ok(())
     }
-
-    pub fn high_qc_rounds(&self) -> Vec<RoundNumber> {
+    pub fn high_tc_rounds(&self) -> Vec<RoundNumber> {
         self.votes.iter().map(|status| &status.high_qc.round).cloned().collect() // CHECK: stealing ownership?
     }
     //check if needs to be highest tc?
     pub fn highest_digest(&self) -> Option<&Digest> {
-        let highest_qc_round_vec = self.high_qc_rounds();
-        let highest_qc_round = highest_qc_round_vec.iter().max().expect("Empty TC");
+        let highest_tc_round_vec = self.high_tc_rounds();
+        let highest_tc_round = highest_tc_round_vec.iter().max().expect("Empty TC");
 
         for status in self.votes.iter() {
-            if status.high_qc.round == *highest_qc_round {
-                return Some(&status.high_qc.hash);
+            if status.high_tc.round == *highest_tc_round {
+                return status.high_tc.locked_digest();
+            }
+        }
+        None
+    }
+    // pub fn high_tc_rounds(&self) -> Vec<RoundNumber> {
+    //     let mut rounds:Vec<u64>=Vec::new();
+    //     // = self.votes.iter().map(|status| status.high_tc.unwrap().round).cloned().collect::<Vec<_>>();
+    //     for status in self.votes.iter() {
+    //         let s=status.high_tc.clone();
+    //         rounds.push(s.unwrap().round);
+    //     }
+    //     return rounds; // CHECK: stealing ownership?
+    // }
+    // //check if needs to be highest tc?
+    // pub fn highest_digest(&self) -> Option<&Digest> {
+    //     let highest_tc_round_vec = self.high_tc_rounds();
+    //     let highest_tc_round = highest_tc_round_vec.iter().max().expect("Empty TC");
+
+    //     for status in self.votes.iter() {
+    //         let s=status.high_tc.clone();
+    //         if s.unwrap().round == *highest_tc_round {
+    //             return Some(&s.unwrap().digest());
+    //         }
+    //         else{
+    //             ()
+    //         }
+    //     }
+    //     None
+    // }
+    pub fn highest_tc(&self) -> Option<TC>{
+        let highest_tc_round_vec = self.high_tc_rounds();
+        let highest_tc_round = highest_tc_round_vec.iter().max().expect("Empty TC");
+
+        for status in self.votes.iter() {
+            
+            if status.high_tc.round == *highest_tc_round {
+                return Some(status.high_tc.clone());
             }
         }
         None
@@ -651,6 +695,6 @@ impl SS {
 
 impl fmt::Debug for SS {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "SS({}, {:?}, {:?})", self.round, self.high_qc_rounds(), self.highest_digest())
+        write!(f, "SS({}, {:?}, {:?})", self.round, self.high_tc_rounds(), self.highest_digest())
     }
 }
