@@ -84,7 +84,7 @@ impl Aggregator {
         // TODO: A bad node may make us run out of memory by sending many timeouts
         // with different round numbers.
 
-        // Add the new timeout to our aggregator and see if we have a TC.
+        // Add the new timeout to our aggregator and see if we have an SS.
         self.status_aggregators
             .entry(status.round)
             .or_insert_with(|| Box::new(SSMaker::new()))

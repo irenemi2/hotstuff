@@ -128,7 +128,7 @@ impl Block {
             Ok(hash) => hash,
             Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, block); },
         };
-        let pt = ProposedTuple::new(parent, block.digest(), round, author, signature_service).await;
+        let pt = ProposedTuple::new(parent, block.digest(), round, author, ptsignature).await;
 
         Self {
             ptsignature: pt.signature,

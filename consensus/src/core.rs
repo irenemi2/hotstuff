@@ -3,7 +3,7 @@ use crate::config::{Committee, Parameters};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::leader::LeaderElector;
 use crate::mempool::{MempoolDriver, NodeMempool};
-use crate::messages::{Block, Timeout,Status, Vote, QC, TC,SS};
+use crate::messages::{ProposedTuple,Block, Timeout,Status, Vote, QC, TC,SS};
 use crate::synchronizer::Synchronizer;
 use crate::timer::Timer;
 use async_recursion::async_recursion;
@@ -191,6 +191,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         )
         .await;
         debug!("Created {:?}", timeout);
+        // self.update_highest_block(block);
         self.schedule_timer().await;
         let message = CoreMessage::Timeout(timeout.clone());
         self.transmit(&message, None).await?;
@@ -253,6 +254,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                     warn!("Failed to send block through the commit channel: {}", e);
                 }
                 self.latest_commit_digest = Some(block.digest().clone());
+                self.update_highest_block(&block.clone());
             }
 
                 // Process the QC.
@@ -304,7 +306,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             let sender:PublicKey;
             sender=self.leader_elector.get_leader(self.round);
             self.transmit(&message, Some(sender)).await?;
-            self.handle_status(&status).await;
+            self.handle_status(&status).await?;
             // if self.name == self.leader_elector.get_leader(self.round) {
             //     self.generate_proposal(Some(tc),None).await?;
             // }
@@ -374,30 +376,49 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     //define ss
     async fn generate_proposal(&mut self, ss: Option<SS>) -> ConsensusResult<()> {
         // Make a new block.
+        
         let mut s=ss.clone();
-        let mut tc=ss.unwrap().highest_tc().clone();
-        if tc.unwrap().round==self.high_tc.round{
-            s=None;
-            tc=Some(self.high_tc.clone());
-        } else {
+        let mut tc;
+
+        // let mut digest:Option<&Digest>;
+        if self.block.tc.is_some(){
+            if let Some(ref digest)=self.block.tc.unwrap().locked_digest().clone(){
+                tc=Some(self.high_tc.clone());
+            }
+        }
+        else{
             tc=None;
         }
+        // if tc.is_some(){
+        //     if tc.unwrap().round==self.high_tc.round{
+        //         s=None;
+        //         tc=Some(self.high_tc.clone());
+        //     } else {
+        //         tc=None;
+        //     }
+        // }
         let payload = self
             .mempool_driver
             .get(self.parameters.max_payload_size)
             .await;
-        let block = Block::new(
-            self.high_qc.clone(),
-            tc,
-            s,
-            self.round,
-            payload,
-            self.name,
-            self.signature_service.clone(),
-            self.signature_service.clone()
-        )
-        .await;
-
+         
+        let mut block=Block::genesis();
+        if self.round>self.block.round{
+            block=Block::new(
+                self.high_qc.clone(),
+                tc,
+                ss,
+                self.round,
+                payload,
+                self.name,
+                self.signature_service.clone(),
+                self.signature_service.clone()
+            )
+            .await;
+        }
+        else{
+            block=self.block.clone();
+        }
         if !block.payload.is_empty() {
             info!("Created {}", block);
 
