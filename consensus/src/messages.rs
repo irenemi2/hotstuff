@@ -28,7 +28,8 @@ pub struct ProposedBlock{
 
 impl ProposedBlock {
     pub async fn new(
-        block:&Block,
+        payload:Vec<Vec<u8>>,
+        round:RoundNumber,
         qc: QC,
         tc: Option<TC>,
         ss: Option<SS>,
@@ -36,7 +37,7 @@ impl ProposedBlock {
         mut signature_service: SignatureService,
     ) -> Self {
         let proposedblock = Self {
-            block,
+            block:Block::genesis(),
             qc,
             tc,
             ss,
@@ -49,8 +50,9 @@ impl ProposedBlock {
             Ok(hash) => hash,
             Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, proposedblock); },
         };
-
+        let block=Block::new(parent, author,round,payload, signature_service);
         Self {
+            block:block,
             signature: signature,
             ..proposedblock
         }
@@ -149,6 +151,7 @@ impl fmt::Display for ProposedBlock {
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Block {
+    pub parent:Digest,
     pub author: PublicKey,
     pub round: RoundNumber,
     pub payload: Vec<Vec<u8>>,
@@ -157,12 +160,14 @@ pub struct Block {
 
 impl Block {
     pub async fn new(
+        parent:Digest,
         author: PublicKey,
         round: RoundNumber,
         payload: Vec<Vec<u8>>,
         mut signature_service: SignatureService,
     ) -> Self {
         let block = Self {
+            parent,
             author,
             round,
             payload,
@@ -231,6 +236,7 @@ impl Block {
 impl Hash for Block {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
+        hasher.update(&self.parent);
         hasher.update(self.author.0);
         hasher.update(self.round.to_le_bytes());
         for x in &self.payload {

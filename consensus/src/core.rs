@@ -27,10 +27,11 @@ pub type RoundNumber = u64;
 #[derive(Serialize, Deserialize, Debug)]
 pub enum CoreMessage {
     Propose(ProposedBlock),
+    Block(Block),
     Vote(Vote),
     Timeout(Timeout),
     Status(Status),
-    LoopBack(Block),
+    LoopBack(ProposedBlock),
     SyncRequest(Digest, PublicKey),
 }
 
@@ -262,15 +263,80 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             self.advance_round(tc.round).await;
 
             // Broadcast the TC.
+            self.update_high_tc(&tc);
+
+            let status = Status::new(
+                self.high_qc.clone(),
+                self.high_tc.clone(),
+                self.round-1,
+                self.name,
+                self.signature_service.clone(),
+            )
+            .await;
+            // Make a new block if we are the next leader.
+            let message = CoreMessage::Status(status.clone());
+            let sender:PublicKey;
+            sender=self.leader_elector.get_leader(self.round);
+            self.transmit(&message, Some(sender)).await?;
+            self.handle_status(&status).await?;
             //let message = CoreMessage::TC(tc.clone());
             //self.transmit(&message, None).await?;
 
             // Make a new block if we are the next leader.
+            // if self.name == self.leader_elector.get_leader(self.round) {
+            //     self.generate_proposal(Some(tc)).await?;
+            // }
+        }
+        Ok(())
+    }
+    async fn handle_status(&mut self, status: &Status) -> ConsensusResult<()> {
+        debug!("Processing {:?}", status);
+        if status.round < self.round {
+            return Ok(());
+        }
+
+        // Ensure the status is well formed.
+        status.verify(&self.committee)?;
+
+        // Process the QC embedded in the timeout.
+        // self.process_qc(&timeout.high_qc).await;
+
+        // Add the new vote to our aggregator and see if we have a quorum.
+        if let Some(ss )= self.aggregator.add_status(status.clone())? {
+            debug!("Assembled ss {:?}", ss);
+
+            // Try to advance the round.
+            // self.advance_round(ss.round).await;
+
+            // Broadcast the TC.
+            //let message = CoreMessage::TC(tc.clone());
+            //self.transmit(&message, None).await?;
+            // self.update_high_tc(&ss);
+            // Make a new block if we are the next leader.
+            // let message = CoreMessage::Status(status.clone());
+            // self.transmit(&message, None).await?;
+            
             if self.name == self.leader_elector.get_leader(self.round) {
-                self.generate_proposal(Some(tc)).await?;
+                self.generate_proposal(Some(ss)).await?;
             }
         }
         Ok(())
+    }
+
+    fn update_high_qc(&mut self, qc: &QC) {
+        if qc.round > self.high_qc.round {
+            self.high_qc = qc.clone();
+        }
+    }
+    fn update_highest_block(&mut self, block: &Block) {
+        if block.round > self.block.round {
+            self.block = block.clone();
+        }
+    }
+    fn update_high_tc(&mut self, tc: &TC) {
+        if tc.round > self.high_tc.round {
+            self.high_tc = tc.clone();
+        }
     }
 
     #[async_recursion]
@@ -291,7 +357,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     // -- End Pacemaker --
 
     #[async_recursion]
-    async fn generate_proposal(&mut self, tc: Option<TC>) -> ConsensusResult<()> {
+    async fn generate_proposal(&mut self, ss: Option<TC>) -> ConsensusResult<()> {
         // Make a new block.
         let qc: Option<QC>;
         if tc.is_some() {
@@ -334,7 +400,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     }
 
     async fn process_qc(&mut self, qc: &QC) {
-        self.advance_round(qc.round).await;
+        // self.advance_round(qc.round).await;
         self.update_high_qc(qc);
     }
 
@@ -408,7 +474,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Don't store if the round doesn't match up to prevent DOS
         
         if pblock.qc.round+1 == pblock.block.round {
-            self.store_block(pblock).await?;
+            self.store_block(&pblock.block).await?;
         }
         // } else {
         //     debug!("Invalid block: {:?}", pblock);
@@ -538,11 +604,11 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             let result = tokio::select! {
                 Some(message) = self.core_channel.recv() => {
                     match message {
-                        CoreMessage::Propose(block) => self.handle_proposal(&block).await,
+                        CoreMessage::Propose(pblock) => self.handle_proposal(&pblock).await,
                         CoreMessage::Vote(vote) => self.handle_vote(&vote).await,
                         CoreMessage::Timeout(timeout) => self.handle_timeout(&timeout).await,
                         //CoreMessage::TC(tc) => self.handle_tc(tc).await,
-                        CoreMessage::LoopBack(block) => self.process_block(&block).await,
+                        CoreMessage::LoopBack(pblock) => self.process_block(&pblock).await,
                         CoreMessage::SyncRequest(digest, sender) => self.handle_sync_request(digest, sender).await
                     }
                 },
