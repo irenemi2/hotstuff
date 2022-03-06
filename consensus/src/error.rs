@@ -67,12 +67,24 @@ pub enum ConsensusError {
     #[error("TC and QC conflict")]
     QCTCConflict,
 
-    #[error("Unknown vote type {0}")]
-    UnknownVoteType(VoteType),
+    // #[error("Unknown vote type {0}")]
+    // UnknownVoteType(VoteType),
 
-    #[error("Invalid vote type {0}, expecting {1}")]
-    InvalidVoteType(VoteType, VoteType),
+    // #[error("Invalid vote type {0}, expecting {1}")]
+    // InvalidVoteType(VoteType, VoteType),
+    #[error("TC and SS conflict")]
+    TCSSConflict,
+
+    #[error("Safety rule violated")]
+    SafetyRuleViolated,
+
+    #[error("Leader Mismatch PB and Block")]
+    LeaderMisMatch,
 
     #[error("Mismatch round number, in TC:{0} <-> in Timeout:{1}")]
     MismatchTCTimeout(RoundNumber, RoundNumber),
+    
+    #[error("Mismatch round number, in SS:{0} <-> in Status:{1}")]
+    MismatchSSStatus(RoundNumber, RoundNumber),
+
 }
