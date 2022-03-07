@@ -191,7 +191,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
             if let Some(block) = self
                 .synchronizer
-                .get_block(&qc.hash)
+                .get_block(&qc.digest())
                 .await
                 .expect("Failed to read block") {
 
@@ -447,7 +447,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // If we don't, the synchronizer asks for them to other nodes. It will
         // then ensure we process all ancestors in the correct order, and
         // finally make us resume processing this block.
-        let mut ancestors = Vec::new();
+        // let mut ancestors = Vec::new();
         let mut iter_block = block.clone();
 
         let pre_iter_block = match self.synchronizer.get_parent(&iter_block, &block).await? {
@@ -458,7 +458,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             }
         };
 
-        ancestors.push(pre_iter_block.clone());
+        // ancestors.push(pre_iter_block.clone());
 
         // if pre_iter_block.tc.is_some() {
         //     iter_block = pre_iter_block;
@@ -490,20 +490,17 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // }
 
         // Cleanup the mempool.
-        for b in ancestors.iter() {
-            self.mempool_driver.cleanup(block).await;
-        }
+        // for b in ancestors.iter() {
+        //     self.mempool_driver.cleanup(block).await;
+        // }
 
         // We can commit all blocks in ancestors, starting from the end.
         // Note that we commit blocks only if we have all its ancestors.
-        ancestors.reverse();
-        for b in ancestors.iter() {
-            if let Some(ref latest_commit_digest) = self.latest_commit_digest {
-                if *latest_commit_digest == b.digest() {
-                    continue; // ignore committed block (committed during handle_vote)
-                }
+        // ancestors.reverse();
+        if let Some(ref latest_commit_digest) = self.latest_commit_digest {
+            if *latest_commit_digest == pre_iter_block.digest() {
+                continue; // ignore committed block (committed during handle_vote)
             }
-
             if !b.payload.is_empty() {
                 info!("Committed {}", b);
 
@@ -519,11 +516,33 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
             self.latest_commit_digest = Some(b.digest().clone());
         }
+        // for b in ancestors.iter() {
+        //     if let Some(ref latest_commit_digest) = self.latest_commit_digest {
+        //         if *latest_commit_digest == b.digest() {
+        //             continue; // ignore committed block (committed during handle_vote)
+        //         }
+        //     }
 
-        // Ensure the block's round is as expected.
-        if block.round != self.round {
-            return Ok(());
-        }
+        //     if !b.payload.is_empty() {
+        //         info!("Committed {}", b);
+
+        //         #[cfg(feature = "benchmark")]
+        //         for x in &b.payload {
+        //             info!("Committed B{}({})", b.round, base64::encode(x));
+        //         }
+        //     }
+        //     debug!("Committed {:?}", b);
+        //     if let Err(e) = self.commit_channel.send(b.clone()).await {
+        //         warn!("Failed to send block through the commit channel: {}", e);
+        //     }
+
+        //     self.latest_commit_digest = Some(b.digest().clone());
+        // }
+
+        // // Ensure the block's round is as expected.
+        // if block.round != self.round {
+        //     return Ok(());
+        // }
 
         // See if we can vote for this block (vote).
         let vote = self.make_vote(block).await;
@@ -599,7 +618,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     ) -> ConsensusResult<()> {
         if let Some(bytes) = self.store.read(digest.to_vec()).await? {
             let block = bincode::deserialize(&bytes)?;
-            let message = CoreMessage::Propose(block);
+            let message = CoreMessage::LoopBack(block);
             self.transmit(&message, Some(sender)).await?;
         }
         Ok(())
@@ -638,7 +657,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                         CoreMessage::SyncRequest(digest, sender) => self.handle_sync_request(digest, sender).await
                     }
                 },
-                // Some(_) = self.timer.notifier.recv() => self.local_timeout_round().await,
+                Some(_) = self.timer.notifier.recv() => self.local_timeout_round().await,
                 else => break,
             };
             match result {

@@ -112,7 +112,7 @@ impl Synchronizer {
     ) -> ConsensusResult<Option<Block>> {
         let previous = child_block.previous().expect("Verified block does not have parent"); // should never panic for verified block
 
-        if previous == QC::genesis().hash { // QC::genesis().hash should be consistent to work
+        if previous == QC::genesis().digest().clone() { // QC::genesis().hash should be consistent to work
             return Ok(Some(Block::genesis()));
         }
 

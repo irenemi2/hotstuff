@@ -83,6 +83,9 @@ pub enum ConsensusError {
 
     #[error("Block doesn't extend")]
     BlockExtendError,
+ 
+    #[error("Mismatch Vote round")]
+    MismatchVoteRound(RoundNumber, RoundNumber),
 
     #[error("Mismatch round number, in TC:{0} <-> in Timeout:{1}")]
     MismatchTCTimeout(RoundNumber, RoundNumber),

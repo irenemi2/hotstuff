@@ -18,7 +18,7 @@ pub struct Parameters {
 impl Default for Parameters {
     fn default() -> Self {
         Self {
-            timeout_delay: 5000,
+            timeout_delay: 10_000,
             sync_retry_delay: 10_000,
             max_payload_size: 500,
             min_block_delay: 100,

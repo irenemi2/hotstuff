@@ -5,6 +5,7 @@ use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
+use core::time;
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fmt;
@@ -36,7 +37,7 @@ impl ProposedBlock {
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
-        let proposedblock = Self {
+        let mut proposedblock = Self {
             block:Block::genesis(),
             qc,
             tc,
@@ -51,11 +52,14 @@ impl ProposedBlock {
             Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, proposedblock); },
         };
         let block=Block::new(parent, author,round,payload, signature_service).await;
-        Self {
-            signature:signature,
-            block:block,
-            ..proposedblock
-        }
+        proposedblock.block=block;
+        proposedblock.signature=signature;
+        return proposedblock;
+        // Self {
+        //     signature:signature,
+        //     block:block,
+        //     proposedblock
+        // }
     }
 
     pub fn genesis() -> Self {
@@ -81,7 +85,7 @@ impl ProposedBlock {
             return Ok(Digest::default());
         }
 
-        Ok(self.qc.hash.clone())
+        Ok(self.qc.digest().clone())
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> { // TODO: check more??
@@ -166,7 +170,7 @@ impl Block {
         payload: Vec<Vec<u8>>,
         mut signature_service: SignatureService,
     ) -> Self {
-        let block = Self {
+        let mut block = Self {
             parent,
             author,
             round,
@@ -174,7 +178,9 @@ impl Block {
             signature: Signature::default(),
         };
         let signature = signature_service.request_signature(block.digest()).await;
-        Self { signature, ..block }
+        block.signature=signature;
+        return block;
+        // Self { signature, ..block }
     }
 
     pub fn genesis() -> Self {
@@ -195,10 +201,10 @@ impl Block {
             // TODO: fix this
             return Ok(Digest::default());
         }
-        // else{
-        //     ()
-        // }
-        Err(ConsensusError::QCTCConflict)
+        else{
+            return Ok(self.parent.clone())
+        }
+        // Err(ConsensusError::QCTCConflict)
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
@@ -283,14 +289,16 @@ impl Vote {
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
-        let vote = Self {
+        let mut vote = Self {
             // vote_type,
             block,
             author,
             signature: Signature::default(),
         };
         let signature = signature_service.request_signature(vote.digest()).await;
-        Self { signature, ..vote }
+        vote.signature=signature;
+        return  vote;
+        // Self { signature, ..vote }
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
@@ -301,10 +309,10 @@ impl Vote {
         // );
 
         // Ensure the authority has voting rights.
-        // ensure!(
-        //     committee.stake(&self.author) > 0,
-        //     ConsensusError::UnknownAuthority(self.author)
-        // );
+        ensure!(
+            committee.stake(&self.author) > 0,
+            ConsensusError::UnknownAuthority(self.author)
+        );
 
         // Check the signature.
         self.signature.verify(&self.digest(), &self.author)?;
@@ -329,12 +337,18 @@ impl fmt::Debug for Vote {
     }
 }
 
+impl fmt::Display for Vote {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "V{},{}", self.block.round,self.author)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct QC {
     // pub vote_type: VoteType,
-    pub hash: Digest,
+    // pub hash: Digest,
     pub round: RoundNumber,
-    pub votes: Vec<(PublicKey, Signature)>,
+    pub votes: Vec<Vote>,
 }
 
 impl QC {
@@ -342,9 +356,9 @@ impl QC {
         QC::default()
     }
 
-    pub fn timeout(&self) -> bool {
-        self.hash == Digest::default() && self.round != 0
-    }
+    // pub fn timeout(&self) -> bool {
+    //     self.hash == Digest::default() && self.round != 0
+    // }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
         // Ensure QC type matched expectation
@@ -356,11 +370,11 @@ impl QC {
         // Ensure the QC has a quorum.
         let mut weight = 0;
         let mut used = HashSet::new();
-        for (name, _) in self.votes.iter() {
-            ensure!(!used.contains(name), ConsensusError::AuthorityReuse(*name));
-            let voting_rights = committee.stake(name);
-            ensure!(voting_rights > 0, ConsensusError::UnknownAuthority(*name));
-            used.insert(*name);
+        for vote in self.votes.iter() {
+            ensure!(!used.contains(&vote.author), ConsensusError::AuthorityReuse(vote.author));
+            let voting_rights = committee.stake(&vote.author);
+            ensure!(voting_rights > 0, ConsensusError::UnknownAuthority(vote.author));
+            used.insert(vote.author);
             weight += voting_rights;
         }
         ensure!(
@@ -369,7 +383,15 @@ impl QC {
         );
 
         // Check the signatures.
-        Signature::verify_batch(&self.digest(), &self.votes).map_err(ConsensusError::from)
+        for vote in &self.votes {
+            ensure!(
+                self.round == vote.block.round,
+                ConsensusError::MismatchVoteRound(self.round, vote.block.round)
+            );
+
+            vote.verify(committee)?;
+        }
+        Ok(())
     }
 }
 
@@ -377,7 +399,7 @@ impl Hash for QC {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         // hasher.update(self.vote_type.to_le_bytes());
-        hasher.update(self.hash.clone());
+        // hasher.update(self.hash.clone());
         hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
@@ -385,13 +407,13 @@ impl Hash for QC {
 
 impl fmt::Debug for QC {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "QC(V{}, {})",  self.hash, self.round)
+        write!(f, "QC(V{}, )",  self.round)
     }
 }
 
 impl PartialEq for QC {
     fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash && self.round == other.round
+        self.round == other.round
     }
 }
 
@@ -410,16 +432,18 @@ impl Timeout {
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
-        let timeout = Self {
+        let mut timeout = Self {
             block,
             author,
             signature: Signature::default(),
         };
         let signature = signature_service.request_signature(timeout.digest()).await;
-        Self {
-            signature,
-            ..timeout
-        }
+        timeout.signature=signature;
+        return timeout;
+        // Self {
+        //     signature,
+        //     ..timeout
+        // }
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
@@ -534,7 +558,7 @@ impl Status {
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
-        let status = Self {
+        let mut status = Self {
             high_qc,
             high_tc,
             round,
@@ -542,10 +566,12 @@ impl Status {
             signature: Signature::default(),
         };
         let signature = signature_service.request_signature(status.digest()).await;
-        Self {
-            signature,
-            ..status
-        }
+        status.signature=signature;
+        return status;
+        // Self {
+        //     signature,
+        //     ..status
+        // }
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {

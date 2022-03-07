@@ -3,6 +3,7 @@ use crate::core::RoundNumber;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::{Timeout, Vote, QC, TC,Status,SS};
 use crypto::Hash as _;
+use log::{debug};
 use crypto::{Digest, PublicKey, Signature};
 use std::collections::{HashMap, HashSet};
 
@@ -61,7 +62,7 @@ impl Aggregator {
     pub fn add_vote(&mut self, vote: Vote) -> ConsensusResult<Option<QC>> {
         // TODO [issue #7]: A bad node may make us run out of memory by sending many votes
         // with different round numbers or different digests.
-
+        debug!("Adding vote to aggregator {}", vote);
         // Add the new vote to our aggregator and see if we have a QC.
         self.votes_aggregators
             .entry(vote.block.round)
@@ -101,7 +102,7 @@ impl Aggregator {
 
 struct QCMaker {
     weight: Stake,
-    votes: Vec<(PublicKey, Signature)>,
+    votes: Vec<Vote>,
     used: HashSet<PublicKey>,
 }
 
@@ -123,14 +124,18 @@ impl QCMaker {
             self.used.insert(author),
             ConsensusError::AuthorityReuse(author)
         );
-
-        self.votes.push((author, vote.signature));
+        debug!("In append {}", vote);
+        self.votes.push(vote.clone());
+        debug!("Pushed vote {}", vote);
         self.weight += committee.stake(&author);
+        debug!("Committee stake {},{}", &author,committee.stake(&author));
+        debug!("Weight Threshold {}, {}", self.weight,committee.quorum_threshold());
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures QC is only made once.
+            debug!("Trying to return QC {}", vote);
             return Ok(Some(QC {
                 // vote_type: vote.vote_type,
-                hash: vote.block.digest(),
+                // hash: vote.block.digest(),
                 round: vote.block.round,
                 votes: self.votes.clone(),
             }));
