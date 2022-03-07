@@ -23,7 +23,7 @@ def local(ctx):
     }
     node_params = {
         'consensus': {
-            'timeout_delay': 1_000,
+            'timeout_delay': 10_000,
             'sync_retry_delay': 10_000,
             'max_payload_size': 500,
             'min_block_delay': 0
@@ -35,7 +35,7 @@ def local(ctx):
         }
     }
     try:
-        ret = LocalBench(bench_params, node_params).run(debug=False).result()
+        ret = LocalBench(bench_params, node_params).run(debug=True).result()
         print(ret)
     except BenchError as e:
         Print.error(e)

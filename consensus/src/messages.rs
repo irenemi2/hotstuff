@@ -18,7 +18,7 @@ pub mod messages_tests;
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ProposedBlock{
-    pub block:&Block,
+    pub block:Block,
     pub qc:QC,
     pub tc:Option<TC>,
     pub ss:Option<SS>,
@@ -50,10 +50,10 @@ impl ProposedBlock {
             Ok(hash) => hash,
             Err(e) => { panic!("Block previous failed: {} (block content: {:?})", e, proposedblock); },
         };
-        let block=Block::new(parent, author,round,payload, signature_service);
+        let block=Block::new(parent, author,round,payload, signature_service).await;
         Self {
+            signature:signature,
             block:block,
-            signature: signature,
             ..proposedblock
         }
     }
@@ -269,7 +269,7 @@ impl fmt::Display for Block {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Vote {
     // pub vote_type: VoteType,
-    pub block: &Block, // Inner Block 
+    pub block: Block, // Inner Block 
     // pub round: RoundNumber,
     pub author: PublicKey,
     pub signature: Signature,
@@ -278,7 +278,7 @@ pub struct Vote {
 impl Vote {
     pub async fn new(
         // vote_type: VoteType,
-        block: &Block,
+        block: Block,
         // round: RoundNumber,
         author: PublicKey,
         mut signature_service: SignatureService,
@@ -399,14 +399,14 @@ impl PartialEq for QC {
 pub struct Timeout {
     // pub high_qc: QC,
     // pub round: RoundNumber,
-    pub block:&Block,
+    pub block:Block,
     pub author: PublicKey,
     pub signature: Signature,
 }
 
 impl Timeout {
     pub async fn new(
-        block:&Block,
+        block:Block,
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
@@ -499,13 +499,13 @@ impl TC {
         self.votes.iter().map(|timeout| &timeout.block.round).cloned().collect() // CHECK: stealing ownership?
     }
 
-    pub fn highest_digest(&self) -> Option<&Digest> {
+    pub fn highest_tc_block(&self) -> Option<Block> {
         let highest_qc_round_vec = self.high_qc_rounds();
         let highest_qc_round = highest_qc_round_vec.iter().max().expect("Empty TC");
 
         for timeout in self.votes.iter() {
             if timeout.block.round == *highest_qc_round {
-                return Some(&timeout.block.digest());
+                return Some(timeout.block.clone());
             }
         }
         None
@@ -514,14 +514,14 @@ impl TC {
 
 impl fmt::Debug for TC {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "TC({}, {:?}, {:?})", self.round, self.high_qc_rounds(), self.highest_digest())
+        write!(f, "TC({}, {:?}, {:?})", self.round, self.high_qc_rounds(), self.highest_tc_block())
     }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Status{
     pub high_qc: QC,
-    pub high_tc:Option<TC>,
+    pub high_tc:TC,
     pub round: RoundNumber,
     pub author: PublicKey,
     pub signature: Signature,
@@ -529,7 +529,7 @@ pub struct Status{
 impl Status {
     pub async fn new(
         high_qc: QC,
-        high_tc:Option<TC>,
+        high_tc:TC,
         round: RoundNumber,
         author: PublicKey,
         mut signature_service: SignatureService,
@@ -562,9 +562,9 @@ impl Status {
         if self.high_qc != QC::genesis() {
             self.high_qc.verify(committee)?;
         }
-        if let Some(ref tc) = self.high_tc {
-            tc.verify(committee)?;
-        }
+        
+        self.high_tc.verify(committee)?;
+        
         // self.high_tc.verify(committee)?;
         Ok(())
     }
@@ -620,10 +620,10 @@ impl SS {
         }
         Ok(())
     }
-    // pub fn high_tc_rounds(&self) -> Vec<RoundNumber> {
-    //     self.votes.iter().map(|status| &status.high_qc.round).cloned().collect() // CHECK: stealing ownership?
-    // }
-    // //check if needs to be highest tc?
+    pub fn high_tc_rounds(&self) -> Vec<RoundNumber> {
+        self.votes.iter().map(|status| &status.high_tc.round).cloned().collect() // CHECK: stealing ownership?
+    }
+    //check if needs to be highest tc?
     // pub fn highest_digest(&self) -> Option<&Digest> {
     //     let highest_tc_round_vec = self.high_tc_rounds();
     //     let highest_tc_round = highest_tc_round_vec.iter().max().expect("Empty TC");
@@ -636,18 +636,18 @@ impl SS {
     //     None
     // }
     
-    // pub fn highest_tc(&self) -> Option<TC>{
-    //     let highest_tc_round_vec = self.high_tc_rounds();
-    //     let highest_tc_round = highest_tc_round_vec.iter().max().expect("Empty TC");
+    pub fn highest_status(&self) -> Option<Status>{
+        let highest_tc_round_vec = self.high_tc_rounds();
+        let highest_tc_round = highest_tc_round_vec.iter().max().expect("Empty TC");
 
-    //     for status in self.votes.iter() {
+        for status in self.votes.iter() {
             
-    //         if status.high_tc.round == *highest_tc_round {
-    //             return Some(status.high_tc.clone());
-    //         }
-    //     }
-    //     None
-    // }
+            if status.high_tc.round == *highest_tc_round {
+                return Some(status.clone());
+            }
+        }
+        None
+    }
 }
 
 impl fmt::Debug for SS {

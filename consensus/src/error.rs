@@ -1,5 +1,5 @@
 use crate::core::RoundNumber;
-use crate::messages::VoteType;
+// use crate::messages::VoteType;
 use crypto::{CryptoError, Digest, PublicKey};
 use store::StoreError;
 use thiserror::Error;
@@ -7,7 +7,7 @@ use thiserror::Error;
 #[macro_export]
 macro_rules! bail {
     ($e:expr) => {
-        return Err($e);
+        return Err($e)
     };
 }
 
@@ -81,9 +81,12 @@ pub enum ConsensusError {
     #[error("Leader Mismatch PB and Block")]
     LeaderMisMatch,
 
+    #[error("Block doesn't extend")]
+    BlockExtendError,
+
     #[error("Mismatch round number, in TC:{0} <-> in Timeout:{1}")]
     MismatchTCTimeout(RoundNumber, RoundNumber),
-    
+
     #[error("Mismatch round number, in SS:{0} <-> in Status:{1}")]
     MismatchSSStatus(RoundNumber, RoundNumber),
 

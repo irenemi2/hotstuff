@@ -27,11 +27,11 @@ pub type RoundNumber = u64;
 #[derive(Serialize, Deserialize, Debug)]
 pub enum CoreMessage {
     Propose(ProposedBlock),
-    Block(Block),
+    // Block(Block),
     Vote(Vote),
     Timeout(Timeout),
     Status(Status),
-    LoopBack(ProposedBlock),
+    LoopBack(Block),
     SyncRequest(Digest, PublicKey),
 }
 
@@ -136,26 +136,13 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         self.last_voted_round = max(self.last_voted_round, target);
     }
 
-    async fn make_vote(&mut self, pblock: &ProposedBlock) -> Vote {
+    async fn make_vote(&mut self, block: &Block) -> Vote {
         // Check if we can vote for this block.
-        let safety_rule_1 = pblock.block.round > self.last_voted_round;
-
-        let safety_rule_2 = pblock.qc.round +1 == pblock.block.round;
-        let mut safety_rule_3 = false;
-        if let Some(ref tc) = pblock.tc {
-            safety_rule_3 = tc.round + 1 == pblock.block.round;
-        } 
-        else if let Some(ref ss) = pblock.ss {
-            safety_rule_3 = ss.round + 1 == pblock.block.round;
-        }
-        if !(safety_rule_1 && safety_rule_2 && safety_rule_3) {
-            ConsensusError::SafetyRuleViolated;
-        }
-
+        
         // Ensure we won't vote for contradicting blocks.
-        self.increase_last_voted_round(pblock.block.round);
+        self.increase_last_voted_round(block.round);
         // [issue #15]: Write to storage preferred_round and last_voted_round.
-        Vote::new(pblock.block, self.name,self.signature_service.clone()).await
+        Vote::new(block.clone(), self.name,self.signature_service.clone()).await
     }
     // -- End Safety Module --
 
@@ -230,14 +217,16 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
                 self.latest_commit_digest = Some(block.digest().clone());
                 
+                
             }
 
             // Process the QC.
             self.process_qc(&qc).await;
-
+            //update highest voted block
+            self.update_highest_block(&vote.block);
             // Make a new block if we are the next leader.
             if self.name == self.leader_elector.get_leader(self.round) {
-                self.generate_proposal(None).await?;
+                self.generate_proposal(self.high_qc.clone(),None,None).await?;
             }
         }
         Ok(())
@@ -305,29 +294,29 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         if let Some(ss )= self.aggregator.add_status(status.clone())? {
             debug!("Assembled ss {:?}", ss);
 
-            // Try to advance the round.
-            // self.advance_round(ss.round).await;
+            if self.high_tc.round == ss.round {
+                if self.name == self.leader_elector.get_leader(self.round) {
+                    self.generate_proposal(self.high_qc.clone(),Some(self.high_tc.clone()),None).await?;
+                }
+            }
+            else{
+                if let Some(ref status)=ss.highest_status().clone(){
+                // let Some(ref block)=status.high_tc.highest_tc_block().clone();
 
-            // Broadcast the TC.
-            //let message = CoreMessage::TC(tc.clone());
-            //self.transmit(&message, None).await?;
-            // self.update_high_tc(&ss);
-            // Make a new block if we are the next leader.
-            // let message = CoreMessage::Status(status.clone());
-            // self.transmit(&message, None).await?;
-            
-            if self.name == self.leader_elector.get_leader(self.round) {
-                self.generate_proposal(Some(ss)).await?;
+                    if self.name == self.leader_elector.get_leader(self.round) {
+                        self.generate_proposal(status.high_qc.clone(),None,Some(ss)).await?;
+                    }
+                }
             }
         }
         Ok(())
     }
 
-    fn update_high_qc(&mut self, qc: &QC) {
-        if qc.round > self.high_qc.round {
-            self.high_qc = qc.clone();
-        }
-    }
+    // fn update_high_qc(&mut self, qc: &QC) {
+    //     if qc.round > self.high_qc.round {
+    //         self.high_qc = qc.clone();
+    //     }
+    // }
     fn update_highest_block(&mut self, block: &Block) {
         if block.round > self.block.round {
             self.block = block.clone();
@@ -357,42 +346,43 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     // -- End Pacemaker --
 
     #[async_recursion]
-    async fn generate_proposal(&mut self, ss: Option<TC>) -> ConsensusResult<()> {
+    async fn generate_proposal(&mut self, qc:QC,tc:Option<TC>,ss: Option<SS>) -> ConsensusResult<()> {
         // Make a new block.
-        let qc: Option<QC>;
-        if tc.is_some() {
-            qc = None;
-        } else {
-            qc = Some(self.high_qc_vote2.clone());
-        }
+        // let qc=self.high_qc.clone();
+        // if tc.is_some() {
+        //     qc = None;
+        // } else {
+        //     qc = Some(self.high_qc_vote2.clone());
+        // }
         let payload = self
             .mempool_driver
             .get(self.parameters.max_payload_size)
             .await;
-        let block = Block::new(
+        let pblock = ProposedBlock::new(
+            payload,
+            self.round,
             qc,
             tc,
+            ss,
             self.name,
-            self.round,
-            payload,
             self.signature_service.clone(),
         )
         .await;
 
-        if !block.payload.is_empty() {
-            info!("Created {}", block);
+        if !pblock.block.payload.is_empty() {
+            info!("Created {}", pblock);
 
             #[cfg(feature = "benchmark")]
-            for x in &block.payload {
-                info!("Created B{}({})", block.round, base64::encode(x));
+            for x in &pblock.block.payload {
+                info!("Created B{}({})", pblock.block.round, base64::encode(x));
             }
         }
-        debug!("Created {:?}", block);
+        debug!("Created {:?}", pblock);
 
         // Process our new block and broadcast it.
-        let message = CoreMessage::Propose(block.clone());
+        let message = CoreMessage::Propose(pblock.clone());
         self.transmit(&message, None).await?;
-        self.process_block(&block).await?;
+        self.process_block(&pblock.block).await?;
 
         // Wait for the minimum block delay.
         sleep(Duration::from_millis(self.parameters.min_block_delay)).await;
@@ -405,44 +395,62 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     }
 
     #[async_recursion]
-    async fn process_block(&mut self, pblock: &ProposedBlock) -> ConsensusResult<()> {
-        debug!("Processing {:?}", pblock);
+    async fn process_block(&mut self, block: &Block) -> ConsensusResult<()> {
+        debug!("Processing {:?}", block);
         // Storing block happen if the following condition is satisfied:
         // (1) for qc blocks: if all ancestor blocks (tc and qc) have been stored
         // (2) for tc blocks: always store (following hotstuff org design, but may cause resource exhaustion)
 
-        if let Some(ref tc) = pblock.tc {
-            if tc.round+1 == pblock.block.round {
-                self.store_block(&pblock.block).await?;
-            }
+        if self.high_tc.round+1 == block.round{
+            
+            self.store_block(&block).await?;
+            
 
             // Ensure the block's round is as expected (Note it is assumed with qc/tc in block self.round is up-to-date).
             // This check is important: it prevents bad leaders from producing blocks
             // far in the future that may cause overflow on the round number.
-            if pblock.block.round != self.round {
+            if block.round != self.round {
                 return Ok(());
             }
 
             // See if we can vote for this block (vote1).
-            if let Some(vote) = self.make_vote(pblock).await {
-                debug!("Created {:?}", vote);
-                let message = CoreMessage::Vote(vote.clone());
-                self.transmit(&message, None).await?;
-                self.handle_vote(&vote).await?;
-            }
+            let vote = self.make_vote(block).await; 
+            debug!("Created {:?}", vote);
+            let message = CoreMessage::Vote(vote.clone());
+            self.transmit(&message, None).await?;
+            self.handle_vote(&vote).await?;
+            
 
             return Ok(());
         }
+        // else if self.high_tc.round+1 == block.round {
+        //     if ss.round+1 == pblock.block.round{
+        //         self.store_block(block).await?;
+        //     }
 
+        //     if pblock.block.round != self.round {
+        //         return Ok(());
+        //     }
+
+        //     // See if we can vote for this block (vote1).
+        //     if let vote = self.make_vote(pblock).await {
+        //         debug!("Created {:?}", vote);
+        //         let message = CoreMessage::Vote(vote.clone());
+        //         self.transmit(&message, None).await?;
+        //         self.handle_vote(&vote).await?;
+        //     }
+
+        //     return Ok(());
+        // }
         // Let's see if we have the ancestors of the block, that is:
         //      b_n+2 <- |qc1; b_n+1| <- |tc_n; bn| <- .... <- |qc0; block|
         // If we don't, the synchronizer asks for them to other nodes. It will
         // then ensure we process all ancestors in the correct order, and
         // finally make us resume processing this block.
         let mut ancestors = Vec::new();
-        let mut iter_block = pblock.block.clone();
+        let mut iter_block = block.clone();
 
-        let pre_iter_block = match self.synchronizer.get_parent(&iter_block, &pblock.block).await? {
+        let pre_iter_block = match self.synchronizer.get_parent(&iter_block, &block).await? {
             Some(pre_iter_block) => pre_iter_block,
             None => {
                 debug!("Processing of {} suspended: missing parent", iter_block.digest());
@@ -452,29 +460,29 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
         ancestors.push(pre_iter_block.clone());
 
-        if pre_iter_block.tc.is_some() {
-            iter_block = pre_iter_block;
+        // if pre_iter_block.tc.is_some() {
+        //     iter_block = pre_iter_block;
 
-            while iter_block.tc.is_some() {
-                let pre_iter_block = match self.synchronizer.get_parent(&iter_block, &pblock.block).await? {
-                    Some(pre_iter_block) => pre_iter_block,
-                    None => {
-                        debug!("Processing of {} suspended: missing parent", iter_block.digest());
-                        return Ok(());
-                    }
-                };
+        //     while iter_block.tc.is_some() {
+        //         let pre_iter_block = match self.synchronizer.get_parent(&iter_block, &block).await? {
+        //             Some(pre_iter_block) => pre_iter_block,
+        //             None => {
+        //                 debug!("Processing of {} suspended: missing parent", iter_block.digest());
+        //                 return Ok(());
+        //             }
+        //         };
 
-                ancestors.push(pre_iter_block.clone());
-                iter_block = pre_iter_block;
-            }
-        }
+        //         ancestors.push(pre_iter_block.clone());
+        //         iter_block = pre_iter_block;
+        //     }
+        // }
 
         // Ancestors vector has all ancestor blocks in reverse order (start: newest -> end: oldest)
         // Store the block only if we have already processed all its ancestors.
         // Don't store if the round doesn't match up to prevent DOS
         
-        if pblock.qc.round+1 == pblock.block.round {
-            self.store_block(&pblock.block).await?;
+        if self.high_qc.round + 1 == block.round {
+            self.store_block(&block).await?;
         }
         // } else {
         //     debug!("Invalid block: {:?}", pblock);
@@ -483,7 +491,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
         // Cleanup the mempool.
         for b in ancestors.iter() {
-            self.mempool_driver.cleanup(b).await;
+            self.mempool_driver.cleanup(block).await;
         }
 
         // We can commit all blocks in ancestors, starting from the end.
@@ -513,17 +521,17 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         }
 
         // Ensure the block's round is as expected.
-        if pblock.block.round != self.round {
+        if block.round != self.round {
             return Ok(());
         }
 
         // See if we can vote for this block (vote).
-        if let Some(vote) = self.make_vote(pblock.block).await {
-            debug!("Created {:?}", vote);
-            let message = CoreMessage::Vote(vote.clone());
-            self.transmit(&message, None).await?;
-            self.handle_vote(&vote).await?;
-        }
+        let vote = self.make_vote(block).await;
+        debug!("Created {:?}", vote);
+        let message = CoreMessage::Vote(vote.clone());
+        self.transmit(&message, None).await?;
+        self.handle_vote(&vote).await?;
+    
         Ok(())
     }
 
@@ -543,28 +551,45 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             pblock.author == pblock.block.author,
             ConsensusError::LeaderMisMatch
         );
-
+        ensure!(
+            self.high_qc.round +1 == pblock.block.round,
+            ConsensusError::BlockExtendError
+        );
+        pblock.verify(&self.committee)?;
         // Check the block is correctly formed.
         pblock.block.verify(&self.committee)?;
+        let safety_rule_1 = pblock.block.round > self.last_voted_round;
 
-            // Process the QC (if any). This may allow us to advance round.
-        self.process_qc(pblock.qc).await;
+        let safety_rule_2 = pblock.qc.round +1 == pblock.block.round;
+        let mut safety_rule_3 = false;
         if let Some(ref tc) = pblock.tc {
-            // Process the TC (if any). This may allow us to advance round.
-            self.advance_round(tc.round).await;
+            safety_rule_3 = tc.round + 1 == pblock.block.round;
+        } 
+        else if let Some(ref ss) = pblock.ss {
+            safety_rule_3 = ss.round + 1 == pblock.block.round;
         }
-        else{
+        if !(safety_rule_1 && safety_rule_2 && safety_rule_3) {
+            ConsensusError::SafetyRuleViolated;
+        }
 
-        }
+            // Process the QC (if any).
+        // self.process_qc(pblock.qc).await;
+        // if let Some(ref tc) = pblock.tc {
+        //     // Process the TC (if any). This may allow us to advance round.
+        //     self.advance_round(tc.round).await;
+        // }
+        // else{
+
+        // }
         // Let's see if we have the block's data. If we don't, the mempool
         // will get it and then make us resume processing this block.
-        if !self.mempool_driver.verify(pblock.block).await? {
+        if !self.mempool_driver.verify(&pblock.block).await? {
             debug!("Processing of {} suspended: missing payload", digest);
             return Ok(());
         }
 
         // All check pass, we can process this block.
-        self.process_block(pblock).await
+        self.process_block(&pblock.block).await
     }
 
     async fn handle_sync_request(
@@ -593,7 +618,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Also, schedule a timer in case we don't hear from the leader.
         self.schedule_timer().await;
         if self.name == self.leader_elector.get_leader(self.round) {
-            self.generate_proposal(None)
+            self.generate_proposal(QC::genesis(),None,None)
                 .await
                 .expect("Failed to send the first block");
         }
@@ -608,11 +633,12 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                         CoreMessage::Vote(vote) => self.handle_vote(&vote).await,
                         CoreMessage::Timeout(timeout) => self.handle_timeout(&timeout).await,
                         //CoreMessage::TC(tc) => self.handle_tc(tc).await,
-                        CoreMessage::LoopBack(pblock) => self.process_block(&pblock).await,
+                        CoreMessage::Status(status) => self.handle_status(&status).await,
+                        CoreMessage::LoopBack(block) => self.process_block(&block).await,
                         CoreMessage::SyncRequest(digest, sender) => self.handle_sync_request(digest, sender).await
                     }
                 },
-                Some(_) = self.timer.notifier.recv() => self.local_timeout_round().await,
+                // Some(_) = self.timer.notifier.recv() => self.local_timeout_round().await,
                 else => break,
             };
             match result {

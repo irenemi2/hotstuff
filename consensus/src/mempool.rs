@@ -62,8 +62,8 @@ impl<Mempool: 'static + NodeMempool> MempoolDriver<Mempool> {
                     },
                     Some(result) = waiting.next() => {
                         match result {
-                            Ok(Some(block)) => {
-                                let message = CoreMessage::LoopBack(block);
+                            Ok(Some(pblock)) => {
+                                let message = CoreMessage::LoopBack(pblock);
                                 if let Err(e) = core_channel.send(message).await {
                                     panic!("Failed to send message through core channel: {}", e);
                                 }
