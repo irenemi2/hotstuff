@@ -1,5 +1,5 @@
 use crate::core::RoundNumber;
-use crate::messages::VoteType;
+// use crate::messages::VoteType;
 use crypto::{CryptoError, Digest, PublicKey};
 use store::StoreError;
 use thiserror::Error;
@@ -7,7 +7,7 @@ use thiserror::Error;
 #[macro_export]
 macro_rules! bail {
     ($e:expr) => {
-        return Err($e);
+        return Err($e)
     };
 }
 
@@ -67,11 +67,11 @@ pub enum ConsensusError {
     #[error("TC and QC conflict")]
     QCTCConflict,
 
-    #[error("Unknown vote type {0}")]
-    UnknownVoteType(VoteType),
+    // #[error("Unknown vote type {0}")]
+    // UnknownVoteType(VoteType),
 
-    #[error("Invalid vote type {0}, expecting {1}")]
-    InvalidVoteType(VoteType, VoteType),
+    // #[error("Invalid vote type {0}, expecting {1}")]
+    // InvalidVoteType(VoteType, VoteType),
 
     #[error("Mismatch round number, in TC:{0} <-> in Timeout:{1}")]
     MismatchTCTimeout(RoundNumber, RoundNumber),
