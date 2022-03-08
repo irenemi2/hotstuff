@@ -23,7 +23,7 @@ def local(ctx):
     }
     node_params = {
         'consensus': {
-            'timeout_delay': 1_000,
+            'timeout_delay': 500,
             'sync_retry_delay': 10_000,
             'max_payload_size': 500,
             'min_block_delay': 0
@@ -107,7 +107,7 @@ def remote(ctx):
     }
     node_params = {
         'consensus': {
-            'timeout_delay': 30_000,
+            'timeout_delay': 50_000,
             'sync_retry_delay': 500_000,
             'max_payload_size': 1_000,
             'min_block_delay': 100
