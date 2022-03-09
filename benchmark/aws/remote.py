@@ -35,7 +35,7 @@ class Bench:
         self.settings = self.manager.settings
         try:
             ctx.connect_kwargs.pkey = RSAKey.from_private_key_file(
-                self.manager.settings.key_path,password
+                self.manager.settings.key_path,"Irene"
             )
             self.connect = ctx.connect_kwargs
         except (IOError, PasswordRequiredException, SSHException) as e:

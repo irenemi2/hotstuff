@@ -15,20 +15,20 @@
  Latency: 176 +/- 25 ms
 
  Variable value: X=10000
- TPS: 9999 +/- 1 tx/s
- Latency: 171 +/- 10 ms
+ TPS: 10000 +/- 1 tx/s
+ Latency: 140 +/- 35 ms
 
  Variable value: X=15000
- TPS: 14953 +/- 2 tx/s
- Latency: 249 +/- 32 ms
+ TPS: 14956 +/- 4 tx/s
+ Latency: 180 +/- 78 ms
 
  Variable value: X=20000
  TPS: 19994 +/- 2 tx/s
  Latency: 312 +/- 9 ms
 
  Variable value: X=25000
- TPS: 24939 +/- 0 tx/s
- Latency: 273 +/- 0 ms
+ TPS: 24946 +/- 9 tx/s
+ Latency: 257 +/- 23 ms
 
  Variable value: X=30000
  TPS: 29976 +/- 3 tx/s
