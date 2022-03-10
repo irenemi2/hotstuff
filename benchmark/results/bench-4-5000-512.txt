@@ -4,9 +4,9 @@
 -----------------------------------------
  + CONFIG:
  Committee size: 4 nodes
- Input rate: 0 tx/s
+ Input rate: 5,000 tx/s
  Transaction size: 512 B
- Execution time: 0 s
+ Execution time: 301 s
 
  Consensus max payloads size: 1,000 B
  Consensus min block delay: 100 ms
@@ -14,13 +14,13 @@
  Mempool min block delay: 100 ms
 
  + RESULTS:
- Consensus TPS: 19 tx/s
- Consensus BPS: 9,942 B/s
- Consensus latency: 51 ms
+ Consensus TPS: 4,947 tx/s
+ Consensus BPS: 2,532,789 B/s
+ Consensus latency: 225 ms
 
- End-to-end TPS: 13 tx/s
- End-to-end BPS: 6,759 B/s
- End-to-end latency: 196 ms
+ End-to-end TPS: 4,946 tx/s
+ End-to-end BPS: 2,532,452 B/s
+ End-to-end latency: 992 ms
 -----------------------------------------
 
 -----------------------------------------
@@ -28,9 +28,9 @@
 -----------------------------------------
  + CONFIG:
  Committee size: 4 nodes
- Input rate: 0 tx/s
+ Input rate: 5,000 tx/s
  Transaction size: 512 B
- Execution time: 0 s
+ Execution time: 301 s
 
  Consensus max payloads size: 1,000 B
  Consensus min block delay: 100 ms
@@ -38,13 +38,13 @@
  Mempool min block delay: 100 ms
 
  + RESULTS:
- Consensus TPS: 19 tx/s
- Consensus BPS: 9,942 B/s
- Consensus latency: 51 ms
+ Consensus TPS: 4,958 tx/s
+ Consensus BPS: 2,538,363 B/s
+ Consensus latency: 227 ms
 
- End-to-end TPS: 16 tx/s
- End-to-end BPS: 8,192 B/s
- End-to-end latency: 173 ms
+ End-to-end TPS: 4,944 tx/s
+ End-to-end BPS: 2,531,454 B/s
+ End-to-end latency: 977 ms
 -----------------------------------------
 
 -----------------------------------------
@@ -52,9 +52,9 @@
 -----------------------------------------
  + CONFIG:
  Committee size: 4 nodes
- Input rate: 0 tx/s
+ Input rate: 5,000 tx/s
  Transaction size: 512 B
- Execution time: 0 s
+ Execution time: 301 s
 
  Consensus max payloads size: 1,000 B
  Consensus min block delay: 100 ms
@@ -62,11 +62,11 @@
  Mempool min block delay: 100 ms
 
  + RESULTS:
- Consensus TPS: 19 tx/s
- Consensus BPS: 9,942 B/s
- Consensus latency: 51 ms
+ Consensus TPS: 4,955 tx/s
+ Consensus BPS: 2,536,868 B/s
+ Consensus latency: 219 ms
 
- End-to-end TPS: 14 tx/s
- End-to-end BPS: 7,367 B/s
- End-to-end latency: 167 ms
+ End-to-end TPS: 4,948 tx/s
+ End-to-end BPS: 2,533,189 B/s
+ End-to-end latency: 975 ms
 -----------------------------------------
