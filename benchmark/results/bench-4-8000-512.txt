@@ -4,7 +4,7 @@
 -----------------------------------------
  + CONFIG:
  Committee size: 4 nodes
- Input rate: 10,000 tx/s
+ Input rate: 8,000 tx/s
  Transaction size: 512 B
  Execution time: 301 s
 
@@ -14,13 +14,13 @@
  Mempool min block delay: 100 ms
 
  + RESULTS:
- Consensus TPS: 9,992 tx/s
- Consensus BPS: 5,116,066 B/s
- Consensus latency: 243 ms
+ Consensus TPS: 7,997 tx/s
+ Consensus BPS: 4,094,674 B/s
+ Consensus latency: 211 ms
 
- End-to-end TPS: 9,980 tx/s
- End-to-end BPS: 5,109,783 B/s
- End-to-end latency: 795 ms
+ End-to-end TPS: 7,987 tx/s
+ End-to-end BPS: 4,089,360 B/s
+ End-to-end latency: 786 ms
 -----------------------------------------
 
 -----------------------------------------
@@ -28,7 +28,7 @@
 -----------------------------------------
  + CONFIG:
  Committee size: 4 nodes
- Input rate: 10,000 tx/s
+ Input rate: 8,000 tx/s
  Transaction size: 512 B
  Execution time: 301 s
 
@@ -38,13 +38,13 @@
  Mempool min block delay: 100 ms
 
  + RESULTS:
- Consensus TPS: 9,984 tx/s
- Consensus BPS: 5,111,726 B/s
- Consensus latency: 278 ms
+ Consensus TPS: 7,993 tx/s
+ Consensus BPS: 4,092,277 B/s
+ Consensus latency: 209 ms
 
- End-to-end TPS: 9,978 tx/s
- End-to-end BPS: 5,108,922 B/s
- End-to-end latency: 843 ms
+ End-to-end TPS: 7,979 tx/s
+ End-to-end BPS: 4,085,231 B/s
+ End-to-end latency: 774 ms
 -----------------------------------------
 
 -----------------------------------------
@@ -52,7 +52,7 @@
 -----------------------------------------
  + CONFIG:
  Committee size: 4 nodes
- Input rate: 10,000 tx/s
+ Input rate: 8,000 tx/s
  Transaction size: 512 B
  Execution time: 301 s
 
@@ -62,11 +62,11 @@
  Mempool min block delay: 100 ms
 
  + RESULTS:
- Consensus TPS: 9,982 tx/s
- Consensus BPS: 5,110,865 B/s
- Consensus latency: 243 ms
+ Consensus TPS: 7,983 tx/s
+ Consensus BPS: 4,087,470 B/s
+ Consensus latency: 206 ms
 
- End-to-end TPS: 9,973 tx/s
- End-to-end BPS: 5,106,221 B/s
- End-to-end latency: 782 ms
+ End-to-end TPS: 7,981 tx/s
+ End-to-end BPS: 4,086,180 B/s
+ End-to-end latency: 773 ms
 -----------------------------------------

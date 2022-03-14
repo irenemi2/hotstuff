@@ -31,6 +31,7 @@ class Ploter:
     def _latency(self, data, scale=1):
         values = findall(r' Latency: (\d+) \+/- (\d+)', data)
         values = [(float(x)/scale, float(y)/scale) for x, y in values]
+        print(list(zip(*values)))
         return list(zip(*values))
 
     def _variable(self, data):

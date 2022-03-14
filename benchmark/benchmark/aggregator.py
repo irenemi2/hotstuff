@@ -112,6 +112,7 @@ class LogAggregator:
     def _print_latency(self):
         records = deepcopy(self.records)
         organized = defaultdict(list)
+        print(records.items())
         for setup, result in records.items():
             rate = setup.rate
             setup.rate = 'any'
@@ -120,7 +121,6 @@ class LogAggregator:
         for setup, results in list(organized.items()):
             results.sort(key=lambda x: x[2])
             organized[setup] = [(x, y) for x, y, _ in results]
-
         return organized
 
     def _print_tps(self, max_latency=4000):
