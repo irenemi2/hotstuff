@@ -100,14 +100,14 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [4],
-        'rate': [20_000,30_000,40_000],
+        'rate': [2_000,4_000],
         'tx_size': 512,
         'duration': 300,
         'runs': 3,
     }
     node_params = {
         'consensus': {
-            'timeout_delay': 30_000,
+            'timeout_delay': 60_000,
             'sync_retry_delay': 500_000,
             'max_payload_size': 1_000,
             'min_block_delay': 100

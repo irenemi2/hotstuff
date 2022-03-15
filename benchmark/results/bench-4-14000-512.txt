@@ -4,7 +4,7 @@
 -----------------------------------------
  + CONFIG:
  Committee size: 4 nodes
- Input rate: 20,000 tx/s
+ Input rate: 14,000 tx/s
  Transaction size: 512 B
  Execution time: 301 s
 
@@ -14,13 +14,13 @@
  Mempool min block delay: 100 ms
 
  + RESULTS:
- Consensus TPS: 19,982 tx/s
- Consensus BPS: 10,230,597 B/s
- Consensus latency: 401 ms
+ Consensus TPS: 13,978 tx/s
+ Consensus BPS: 7,156,501 B/s
+ Consensus latency: 366 ms
 
- End-to-end TPS: 19,955 tx/s
- End-to-end BPS: 10,217,028 B/s
- End-to-end latency: 983 ms
+ End-to-end TPS: 13,959 tx/s
+ End-to-end BPS: 7,147,054 B/s
+ End-to-end latency: 866 ms
 -----------------------------------------
 
 -----------------------------------------
@@ -28,7 +28,7 @@
 -----------------------------------------
  + CONFIG:
  Committee size: 4 nodes
- Input rate: 20,000 tx/s
+ Input rate: 14,000 tx/s
  Transaction size: 512 B
  Execution time: 302 s
 
@@ -38,13 +38,13 @@
  Mempool min block delay: 100 ms
 
  + RESULTS:
- Consensus TPS: 19,983 tx/s
- Consensus BPS: 10,231,197 B/s
- Consensus latency: 367 ms
+ Consensus TPS: 13,978 tx/s
+ Consensus BPS: 7,156,711 B/s
+ Consensus latency: 382 ms
 
- End-to-end TPS: 19,934 tx/s
- End-to-end BPS: 10,206,237 B/s
- End-to-end latency: 912 ms
+ End-to-end TPS: 13,958 tx/s
+ End-to-end BPS: 7,146,341 B/s
+ End-to-end latency: 841 ms
 -----------------------------------------
 
 -----------------------------------------
@@ -52,7 +52,7 @@
 -----------------------------------------
  + CONFIG:
  Committee size: 4 nodes
- Input rate: 20,000 tx/s
+ Input rate: 14,000 tx/s
  Transaction size: 512 B
  Execution time: 301 s
 
@@ -62,11 +62,11 @@
  Mempool min block delay: 100 ms
 
  + RESULTS:
- Consensus TPS: 19,965 tx/s
- Consensus BPS: 10,221,978 B/s
- Consensus latency: 378 ms
+ Consensus TPS: 13,976 tx/s
+ Consensus BPS: 7,155,757 B/s
+ Consensus latency: 388 ms
 
- End-to-end TPS: 19,934 tx/s
- End-to-end BPS: 10,206,198 B/s
- End-to-end latency: 949 ms
+ End-to-end TPS: 13,960 tx/s
+ End-to-end BPS: 7,147,701 B/s
+ End-to-end latency: 878 ms
 -----------------------------------------
