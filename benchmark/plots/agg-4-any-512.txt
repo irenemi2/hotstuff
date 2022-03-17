@@ -6,29 +6,29 @@
  Input rate: any txs
  Transaction size: 512 B
 
- Variable value: X=1992
- TPS: 1992 +/- 2 tx/s
- Latency: 1837 +/- 3 ms
+ Variable value: X=1996
+ TPS: 1996 +/- 1 tx/s
+ Latency: 1370 +/- 579 ms
 
- Variable value: X=3992
- TPS: 3992 +/- 9 tx/s
- Latency: 1390 +/- 14 ms
+ Variable value: X=3989
+ TPS: 3989 +/- 0 tx/s
+ Latency: 944 +/- 0 ms
 
  Variable value: X=5985
- TPS: 5985 +/- 2 tx/s
- Latency: 1161 +/- 4 ms
+ TPS: 5985 +/- 0 tx/s
+ Latency: 2212 +/- 0 ms
 
- Variable value: X=7981
- TPS: 7981 +/- 2 tx/s
- Latency: 1020 +/- 17 ms
+ Variable value: X=7414
+ TPS: 7414 +/- 0 tx/s
+ Latency: 7298 +/- 0 ms
 
- Variable value: X=9976
- TPS: 9976 +/- 3 tx/s
- Latency: 987 +/- 23 ms
+ Variable value: X=7400
+ TPS: 7400 +/- 22 tx/s
+ Latency: 8653 +/- 411 ms
 
- Variable value: X=11963
- TPS: 11963 +/- 6 tx/s
- Latency: 953 +/- 13 ms
+ Variable value: X=11971
+ TPS: 11971 +/- 0 tx/s
+ Latency: 869 +/- 0 ms
 
  Variable value: X=13959
  TPS: 13959 +/- 1 tx/s
