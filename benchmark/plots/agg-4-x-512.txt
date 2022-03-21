@@ -7,38 +7,58 @@
  Transaction size: 512 B
 
  Variable value: X=4000
- TPS: 3994 +/- 4 tx/s
- Latency: 236 +/- 10 ms
+ TPS: 3990 +/- 3 tx/s
+ Latency: 988 +/- 140 ms
 
  Variable value: X=6000
- TPS: 5994 +/- 3 tx/s
- Latency: 240 +/- 17 ms
+ TPS: 5986 +/- 2 tx/s
+ Latency: 839 +/- 82 ms
 
  Variable value: X=8000
- TPS: 7992 +/- 12 tx/s
- Latency: 267 +/- 10 ms
+ TPS: 7989 +/- 10 tx/s
+ Latency: 764 +/- 20 ms
 
  Variable value: X=10000
- TPS: 9995 +/- 6 tx/s
- Latency: 284 +/- 18 ms
+ TPS: 9971 +/- 1 tx/s
+ Latency: 774 +/- 25 ms
 
  Variable value: X=12000
- TPS: 11990 +/- 2 tx/s
- Latency: 210 +/- 15 ms
+ TPS: 11976 +/- 2 tx/s
+ Latency: 688 +/- 22 ms
 
  Variable value: X=14000
- TPS: 13987 +/- 8 tx/s
- Latency: 228 +/- 17 ms
+ TPS: 13972 +/- 6 tx/s
+ Latency: 696 +/- 38 ms
 
  Variable value: X=16000
- TPS: 15981 +/- 7 tx/s
- Latency: 226 +/- 7 ms
+ TPS: 15965 +/- 2 tx/s
+ Latency: 733 +/- 17 ms
 
  Variable value: X=18000
- TPS: 17991 +/- 6 tx/s
- Latency: 241 +/- 9 ms
+ TPS: 17969 +/- 2 tx/s
+ Latency: 685 +/- 26 ms
 
  Variable value: X=20000
- TPS: 19571 +/- 684 tx/s
- Latency: 308 +/- 100 ms
+ TPS: 19952 +/- 5 tx/s
+ Latency: 804 +/- 143 ms
+
+ Variable value: X=22000
+ TPS: 20312 +/- 2831 tx/s
+ Latency: 3391 +/- 4589 ms
+
+ Variable value: X=24000
+ TPS: 21373 +/- 4443 tx/s
+ Latency: 6048 +/- 9149 ms
+
+ Variable value: X=26000
+ TPS: 18777 +/- 5573 tx/s
+ Latency: 14592 +/- 11224 ms
+
+ Variable value: X=28000
+ TPS: 22267 +/- 7787 tx/s
+ Latency: 15904 +/- 21159 ms
+
+ Variable value: X=30000
+ TPS: 23706 +/- 9131 tx/s
+ Latency: 9423 +/- 13447 ms
 -----------------------------------------

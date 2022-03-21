@@ -100,7 +100,7 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [4],
-        'rate': [8_000], #,3_000,4_000,5_000],
+        'rate': [26_000,30_000], #,3_000,4_000,5_000],
         'tx_size': 512,
         'duration': 300,
         'runs': 2,
@@ -114,7 +114,7 @@ def remote(ctx):
         },
         'mempool': {
             'queue_capacity': 100_000,
-            'max_payload_size': 300_000,
+            'max_payload_size': 500_000,
             'min_block_delay': 100
         }
     }
