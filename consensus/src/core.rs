@@ -3,7 +3,7 @@ use crate::config::{Committee, Parameters};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::leader::LeaderElector;
 use crate::mempool::{MempoolDriver, NodeMempool};
-use crate::messages::{Block, Timeout, Vote, QC, TC};
+use crate::messages::{Block, Timeout, Vote, QC, TC,Status};
 use crate::synchronizer::Synchronizer;
 use crate::timer::Timer;
 use async_recursion::async_recursion;
@@ -29,7 +29,7 @@ pub enum CoreMessage {
     Propose(Block),
     Vote(Vote),
     Timeout(Timeout),
-    //TC(TC),
+    Status(Status),
     LoopBack(Block),
     SyncRequest(Digest, PublicKey),
 }
@@ -50,6 +50,7 @@ pub struct Core<Mempool> {
     last_voted_round: RoundNumber,
     locked_vote2_qc: QC,
     high_qc_vote: QC,
+    high_tc:TC,
     timer: Timer<RoundNumber>,
     aggregator: Aggregator,
     latest_commit_digest: Option<Digest>,
@@ -87,6 +88,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             last_voted_round: 0,
             locked_vote2_qc: QC::genesis(),
             high_qc_vote: QC::genesis(),
+            high_tc:TC::genesis(),
             timer: Timer::new(),
             aggregator,
             latest_commit_digest: Some(Block::genesis().digest()), // TODO: (1) remove option; (2) change to use Digest::default() for genesis block digest for consistency (need to change digest impl for Block)
@@ -166,7 +168,11 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             self.high_qc_vote = qc.clone();
         }
     }
-
+    fn update_high_tc(&mut self, tc: &TC) {
+        if tc.round > self.high_tc.round {
+            self.high_tc = tc.clone();
+        }
+    }
     async fn local_timeout_round(&mut self) -> ConsensusResult<()> {
         warn!("Timeout reached for round {}", self.round);
         self.increase_last_voted_round(self.round);
@@ -273,19 +279,66 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
             // Try to advance the round.
             self.advance_round(tc.round).await;
+            self.update_high_tc(&tc);
+            // Broadcast the Status.
 
-            // Broadcast the TC.
-            //let message = CoreMessage::TC(tc.clone());
-            //self.transmit(&message, None).await?;
-
+            let status = Status::new(
+                self.high_qc_vote.clone(),
+                tc,
+                self.round-1,
+                self.name,
+                self.signature_service.clone(),
+            )
+            .await;
             // Make a new block if we are the next leader.
-            if self.name == self.leader_elector.get_leader(self.round) {
-                self.generate_proposal(Some(tc)).await?;
+            let message = CoreMessage::Status(status.clone());
+            let sender:PublicKey;
+            sender=self.leader_elector.get_leader(self.round);
+            self.transmit(&message, Some(sender)).await?;
+            self.handle_status(&status).await?;
+            // Make a new block if we are the next leader.
+            // if self.name == self.leader_elector.get_leader(self.round) {
+            //     self.generate_proposal(Some(tc)).await?;
+            // }
+        }
+        Ok(())
+    }
+    async fn handle_status(&mut self, status: &Status) -> ConsensusResult<()> {
+        debug!("Processing {:?}", status);
+        // if status.round < self.round {
+        //     return Ok(());
+        // }
+        // debug!("Inside handle status");
+        // Ensure the status is well formed.
+        status.verify(&self.committee)?;
+        // debug!("Status verified");
+        // Process the QC embedded in the timeout.
+        // self.process_qc(&timeout.high_qc).await;
+
+        // Add the new vote to our aggregator and see if we have a quorum.
+        if let Some(ss)= self.aggregator.add_status(status.clone())? {
+            debug!("Assembled ss {:?}", ss);
+
+            if self.high_tc.round == ss.round {
+                if self.name == self.leader_elector.get_leader(self.round) {
+                    self.generate_proposal(Some(self.high_tc.clone())).await?;
+                    debug!("Using high tc {:?}", self.high_tc);
+                }
+            }
+            else{
+                if let Some(ref status)=ss.highest_status().clone(){
+                let ref tc=status.high_tc;
+
+                    if self.name == self.leader_elector.get_leader(self.round) {
+
+                        self.generate_proposal(Some(tc.clone())).await?;
+                        debug!("Using tc in status {:?}", self.high_tc);
+                    }
+                }
             }
         }
         Ok(())
     }
-
     #[async_recursion]
     async fn advance_round(&mut self, round: RoundNumber) {
         if round < self.round {
@@ -522,13 +575,6 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         Ok(())
     }
 
-    //async fn handle_tc(&mut self, tc: TC) -> ConsensusResult<()> {
-    //    self.advance_round(tc.round).await;
-    //    if self.name == self.leader_elector.get_leader(self.round) {
-    //        self.generate_proposal(Some(tc)).await?;
-    //    }
-    //    Ok(())
-    //}
 
     pub async fn run(&mut self) {
         // Upon booting, generate the very first block (if we are the leader).
@@ -549,7 +595,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
                         CoreMessage::Propose(block) => self.handle_proposal(&block).await,
                         CoreMessage::Vote(vote) => self.handle_vote(&vote).await,
                         CoreMessage::Timeout(timeout) => self.handle_timeout(&timeout).await,
-                        //CoreMessage::TC(tc) => self.handle_tc(tc).await,
+                        CoreMessage::Status(status) => self.handle_status(&status).await,
                         CoreMessage::LoopBack(block) => self.process_block(&block).await,
                         CoreMessage::SyncRequest(digest, sender) => self.handle_sync_request(digest, sender).await
                     }

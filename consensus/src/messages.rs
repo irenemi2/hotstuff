@@ -325,13 +325,16 @@ impl fmt::Debug for Timeout {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize,Default)]
 pub struct TC {
     pub round: RoundNumber,
     pub votes: Vec<Timeout>,
 }
 
 impl TC {
+    pub fn genesis() -> Self {
+        TC::default()
+    }
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
         // Ensure the TC has a quorum.
         let mut weight = 0;
@@ -382,5 +385,145 @@ impl TC {
 impl fmt::Debug for TC {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "TC({}, {:?}, {:?})", self.round, self.high_qc_rounds(), self.highest_digest())
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Status{
+    pub high_qc: QC,
+    pub high_tc:TC,
+    pub round: RoundNumber,
+    pub author: PublicKey,
+    pub signature: Signature,
+}
+impl Status {
+    pub async fn new(
+        high_qc: QC,
+        high_tc:TC,
+        round: RoundNumber,
+        author: PublicKey,
+        mut signature_service: SignatureService,
+    ) -> Self {
+        let mut status = Self {
+            high_qc,
+            high_tc,
+            round,
+            author,
+            signature: Signature::default(),
+        };
+        let signature = signature_service.request_signature(status.digest()).await;
+        status.signature=signature;
+        return status;
+        // Self {
+        //     signature,
+        //     ..status
+        // }
+    }
+
+    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
+        // Ensure the authority has voting rights.
+        ensure!(
+            committee.stake(&self.author) > 0,
+            ConsensusError::UnknownAuthority(self.author)
+        );
+
+        // Check the signature.
+        self.signature.verify(&self.digest(), &self.author)?;
+
+        // Check the embedded QC.
+        if self.high_qc != QC::genesis() {
+            self.high_qc.verify(committee)?;
+        }
+        
+        self.high_tc.verify(committee)?;
+        
+        // self.high_tc.verify(committee)?;
+        Ok(())
+    }
+}
+
+impl Hash for Status {
+    fn digest(&self) -> Digest {
+        let mut hasher = Sha512::new();
+        hasher.update(self.round.to_le_bytes());
+        hasher.update(self.high_qc.round.to_le_bytes());    
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+    }
+}
+
+impl fmt::Debug for Status {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "S({}, {}, {:?})", self.author, self.round, self.high_qc)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SS{
+    pub round: RoundNumber,
+    pub votes: Vec<Status>,
+}
+impl SS {
+    pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
+        // Ensure the SS has a quorum.
+        let mut weight = 0;
+        let mut used = HashSet::new();
+        for status in self.votes.iter() {
+            let name = &status.author;
+
+            ensure!(!used.contains(name), ConsensusError::AuthorityReuse(*name));
+            let voting_rights = committee.stake(name);
+            ensure!(voting_rights > 0, ConsensusError::UnknownAuthority(*name));
+            used.insert(*name);
+            weight += voting_rights;
+        }
+        ensure!(
+            weight >= committee.quorum_threshold(),
+            ConsensusError::TCRequiresQuorum
+        );
+
+        // Check the signatures.
+        for status in &self.votes {
+            ensure!(
+                self.round == status.round,
+                ConsensusError::MismatchSSStatus(self.round, status.round)
+            );
+
+            status.verify(committee)?;
+        }
+        Ok(())
+    }
+    pub fn high_tc_rounds(&self) -> Vec<RoundNumber> {
+        self.votes.iter().map(|status| &status.high_tc.round).cloned().collect() // CHECK: stealing ownership?
+    }
+    //check if needs to be highest tc?
+    // pub fn highest_digest(&self) -> Option<&Digest> {
+    //     let highest_tc_round_vec = self.high_tc_rounds();
+    //     let highest_tc_round = highest_tc_round_vec.iter().max().expect("Empty TC");
+
+    //     for status in self.votes.iter() {
+    //         if status.high_tc.round == *highest_tc_round {
+    //             return status.high_tc.locked_digest();
+    //         }
+    //     }
+    //     None
+    // }
+    
+    pub fn highest_status(&self) -> Option<Status>{
+        let highest_tc_round_vec = self.high_tc_rounds();
+        let highest_tc_round = highest_tc_round_vec.iter().max().expect("Empty TC");
+
+        for status in self.votes.iter() {
+            
+            if status.high_tc.round == *highest_tc_round {
+                return Some(status.clone());
+            }
+        }
+        None
+    }
+}
+
+impl fmt::Debug for SS {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "SS({})", self.round)
     }
 }
