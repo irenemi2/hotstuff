@@ -29,7 +29,7 @@ def local(ctx):
             'min_block_delay': 0
         },
         'mempool': {
-            'queue_capacity': 10_000,
+            'queue_capacity': 5_000,
             'max_payload_size': 15_000,
             'min_block_delay': 0
         }
@@ -100,7 +100,7 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [4],
-        'rate': [8_000,10_000,12_000],
+        'rate': [4_000],
         'tx_size': 512,
         'duration': 300,
         'runs': 2,
@@ -114,7 +114,7 @@ def remote(ctx):
         },
         'mempool': {
             'queue_capacity': 100_000,
-            'max_payload_size': 300_000,
+            'max_payload_size':160_000,
             'min_block_delay': 100
         }
     }

@@ -7,12 +7,12 @@
  Transaction size: 512 B
 
  Variable value: X=4000
- TPS: 4000 +/- 3 tx/s
- Latency: 366 +/- 13 ms
+ TPS: 3995 +/- 4 tx/s
+ Latency: 367 +/- 9 ms
 
  Variable value: X=6000
- TPS: 5993 +/- 3 tx/s
- Latency: 368 +/- 9 ms
+ TPS: 5994 +/- 3 tx/s
+ Latency: 372 +/- 9 ms
 
  Variable value: X=8000
  TPS: 7996 +/- 1 tx/s
@@ -41,4 +41,12 @@
  Variable value: X=20000
  TPS: 19977 +/- 10 tx/s
  Latency: 382 +/- 17 ms
+
+ Variable value: X=22000
+ TPS: 20474 +/- 1990 tx/s
+ Latency: 503 +/- 289 ms
+
+ Variable value: X=24000
+ TPS: 20878 +/- 2966 tx/s
+ Latency: 551 +/- 322 ms
 -----------------------------------------
