@@ -3,7 +3,7 @@ use crate::config::{Committee, Parameters};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::leader::LeaderElector;
 use crate::mempool::{MempoolDriver, NodeMempool};
-use crate::messages::{Block, Timeout, Vote, QC, TC,Status};
+use crate::messages::{Block, Timeout, Vote, QC, TC,Status,SS};
 use crate::synchronizer::Synchronizer;
 use crate::timer::Timer;
 use async_recursion::async_recursion;
@@ -51,6 +51,7 @@ pub struct Core<Mempool> {
     locked_vote2_qc: QC,
     high_qc_vote: QC,
     high_tc:TC,
+    locked_block:Block,
     timer: Timer<RoundNumber>,
     aggregator: Aggregator,
     latest_commit_digest: Option<Digest>,
@@ -89,6 +90,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             locked_vote2_qc: QC::genesis(),
             high_qc_vote: QC::genesis(),
             high_tc:TC::genesis(),
+            locked_block:Block::genesis(),
             timer: Timer::new(),
             aggregator,
             latest_commit_digest: Some(Block::genesis().digest()), // TODO: (1) remove option; (2) change to use Digest::default() for genesis block digest for consistency (need to change digest impl for Block)
@@ -153,7 +155,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Ensure we won't vote for contradicting blocks.
         self.increase_last_voted_round(block.round);
         // [issue #15]: Write to storage preferred_round and last_voted_round.
-        Some(Vote::new(block.digest(), block.round, self.name, self.signature_service.clone()).await)
+        Some(Vote::new(block.clone(), block.round, self.name, self.signature_service.clone()).await)
     }
     // -- End Safety Module --
 
@@ -177,7 +179,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         warn!("Timeout reached for round {}", self.round);
         self.increase_last_voted_round(self.round);
         let timeout = Timeout::new(
-            self.locked_vote2_qc.clone(),
+            self.locked_block.clone(),
             self.round,
             self.name,
             self.signature_service.clone(),
@@ -321,19 +323,18 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
             if self.high_tc.round == ss.round {
                 if self.name == self.leader_elector.get_leader(self.round) {
-                    self.generate_proposal(Some(self.high_tc.clone())).await?;
+                    self.generate_proposal(Some(self.high_tc.clone()),None).await?;
                     debug!("Using high tc {:?}", self.high_tc);
                 }
             }
             else{
-                if let Some(ref status)=ss.highest_status().clone(){
-                let ref tc=status.high_tc;
+                // if let Some(ref status)=ss.highest_status().clone(){
+                // // let ref tc=status.high_tc;
 
-                    if self.name == self.leader_elector.get_leader(self.round) {
+                if self.name == self.leader_elector.get_leader(self.round) {
 
-                        self.generate_proposal(Some(tc.clone())).await?;
-                        debug!("Using tc in status {:?}", self.high_tc);
-                    }
+                    self.generate_proposal(None,Some(ss)).await?;
+                    debug!("Using tc in status {:?}", self.high_tc);
                 }
             }
         }
@@ -357,7 +358,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     // -- End Pacemaker --
 
     #[async_recursion]
-    async fn generate_proposal(&mut self, tc: Option<TC>) -> ConsensusResult<()> {
+    async fn generate_proposal(&mut self, tc: Option<TC>,ss:Option<SS>) -> ConsensusResult<()> {
         // Make a new block.
         let qc: Option<QC>;
         if tc.is_some() {
@@ -372,6 +373,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         let block = Block::new(
             qc,
             tc,
+            ss,
             self.name,
             self.round,
             payload,
@@ -581,7 +583,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Also, schedule a timer in case we don't hear from the leader.
         self.schedule_timer().await;
         if self.name == self.leader_elector.get_leader(self.round) {
-            self.generate_proposal(None)
+            self.generate_proposal(None,None)
                 .await
                 .expect("Failed to send the first block");
         }
