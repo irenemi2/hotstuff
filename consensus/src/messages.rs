@@ -138,7 +138,7 @@ impl fmt::Display for Block {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Vote {
     // pub vote_type: VoteType,
-    pub hash: Digest, // Block hash
+    pub block: Block, // Block hash
     pub round: RoundNumber,
     pub author: PublicKey,
     pub signature: Signature,
@@ -147,14 +147,14 @@ pub struct Vote {
 impl Vote {
     pub async fn new(
         // vote_type: VoteType,
-        hash: Digest,
+        block: Block,
         round: RoundNumber,
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
         let vote = Self {
             // vote_type,
-            hash,
+            block,
             round,
             author,
             signature: Signature::default(),
@@ -186,7 +186,7 @@ impl Hash for Vote {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         // hasher.update(self.vote_type.to_le_bytes());
-        hasher.update(self.hash.clone());
+        hasher.update(self.block.digest().clone());
         hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
@@ -194,7 +194,7 @@ impl Hash for Vote {
 
 impl fmt::Debug for Vote {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "V({}, {}, {})", self.author, self.round, self.hash)
+        write!(f, "V({}, {}, {})", self.author, self.round, self.block)
     }
 }
 

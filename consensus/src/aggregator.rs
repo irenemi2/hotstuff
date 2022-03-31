@@ -100,12 +100,12 @@ impl QCMaker {
             ConsensusError::AuthorityReuse(author)
         );
 
-        self.votes.push((author, vote.signature));
+        self.votes.push((author, vote.signature.clone()));
         self.weight += committee.stake(&author);
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures QC is only made once.
             return Ok(Some(QC {
-                hash: vote.hash.clone(),
+                hash: vote.digest().clone(),
                 round: vote.round,
                 votes: self.votes.clone(),
             }));

@@ -151,7 +151,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Ensure we won't vote for contradicting blocks.
         self.increase_last_voted_round(block.round);
         // [issue #15]: Write to storage preferred_round and last_voted_round.
-        Some(Vote::new(block.digest(), block.round, self.name, self.signature_service.clone()).await)
+        Some(Vote::new(block.clone(), block.round, self.name, self.signature_service.clone()).await)
     }
     // -- End Safety Module --
 
