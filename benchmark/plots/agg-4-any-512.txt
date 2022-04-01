@@ -6,47 +6,47 @@
  Input rate: any txs
  Transaction size: 512 B
 
- Variable value: X=3995
- TPS: 3995 +/- 4 tx/s
- Latency: 367 +/- 9 ms
+ Variable value: X=3993
+ TPS: 3993 +/- 1 tx/s
+ Latency: 927 +/- 12 ms
 
- Variable value: X=5994
- TPS: 5994 +/- 3 tx/s
- Latency: 372 +/- 9 ms
+ Variable value: X=5986
+ TPS: 5986 +/- 4 tx/s
+ Latency: 961 +/- 86 ms
 
- Variable value: X=7996
- TPS: 7996 +/- 1 tx/s
- Latency: 372 +/- 9 ms
+ Variable value: X=7986
+ TPS: 7986 +/- 10 tx/s
+ Latency: 902 +/- 6 ms
 
- Variable value: X=9991
- TPS: 9991 +/- 20 tx/s
- Latency: 377 +/- 11 ms
+ Variable value: X=9985
+ TPS: 9985 +/- 16 tx/s
+ Latency: 901 +/- 4 ms
 
- Variable value: X=11994
- TPS: 11994 +/- 2 tx/s
- Latency: 356 +/- 14 ms
+ Variable value: X=11724
+ TPS: 11724 +/- 11 tx/s
+ Latency: 3970 +/- 240 ms
 
- Variable value: X=13977
- TPS: 13977 +/- 1 tx/s
- Latency: 379 +/- 11 ms
+ Variable value: X=11632
+ TPS: 11632 +/- 58 tx/s
+ Latency: 5366 +/- 331 ms
 
- Variable value: X=15967
- TPS: 15967 +/- 9 tx/s
- Latency: 379 +/- 4 ms
+ Variable value: X=11696
+ TPS: 11696 +/- 15 tx/s
+ Latency: 5870 +/- 16 ms
 
- Variable value: X=17968
- TPS: 17968 +/- 13 tx/s
- Latency: 384 +/- 7 ms
+ Variable value: X=11659
+ TPS: 11659 +/- 46 tx/s
+ Latency: 5954 +/- 204 ms
 
- Variable value: X=19977
- TPS: 19977 +/- 10 tx/s
- Latency: 382 +/- 17 ms
+ Variable value: X=11609
+ TPS: 11609 +/- 19 tx/s
+ Latency: 5703 +/- 313 ms
 
- Variable value: X=20474
- TPS: 20474 +/- 1990 tx/s
- Latency: 503 +/- 289 ms
+ Variable value: X=11646
+ TPS: 11646 +/- 61 tx/s
+ Latency: 5842 +/- 362 ms
 
- Variable value: X=20878
- TPS: 20878 +/- 2966 tx/s
- Latency: 551 +/- 322 ms
+ Variable value: X=11705
+ TPS: 11705 +/- 35 tx/s
+ Latency: 5955 +/- 33 ms
 -----------------------------------------
