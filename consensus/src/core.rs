@@ -47,6 +47,7 @@ pub struct Core<Mempool> {
     network_channel: Sender<NetMessage>,
     commit_channel: Sender<Block>,
     round: RoundNumber,
+    view:RoundNumber,
     last_voted_round: RoundNumber,
     locked_vote2_qc: QC,
     high_qc_vote: QC,
@@ -84,6 +85,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             commit_channel,
             core_channel,
             round: 1,
+            view:1,
             last_voted_round: 0,
             locked_vote2_qc: QC::genesis(),
             high_qc_vote: QC::genesis(),
@@ -168,7 +170,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     }
 
     async fn local_timeout_round(&mut self) -> ConsensusResult<()> {
-        warn!("Timeout reached for round {}", self.round);
+        warn!("Timeout reached for view {}", self.view);
         self.increase_last_voted_round(self.round);
         let timeout = Timeout::new(
             self.locked_vote2_qc.clone(),
@@ -248,7 +250,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             self.process_qc(&qc).await;
 
             // Make a new block if we are the next leader.
-            if self.name == self.leader_elector.get_leader(self.round) {
+            if self.name == self.leader_elector.get_leader(self.view) {
                 self.generate_proposal(None).await?;
             }
         }
@@ -273,13 +275,13 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
             // Try to advance the round.
             self.advance_round(tc.round).await;
-
+            self.advance_view(self.view).await;
             // Broadcast the TC.
             //let message = CoreMessage::TC(tc.clone());
             //self.transmit(&message, None).await?;
 
             // Make a new block if we are the next leader.
-            if self.name == self.leader_elector.get_leader(self.round) {
+            if self.name == self.leader_elector.get_leader(self. view) {
                 self.generate_proposal(Some(tc)).await?;
             }
         }
@@ -291,12 +293,26 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         if round < self.round {
             return;
         }
-        self.timer.cancel(self.round).await;
+        // self.timer.cancel(self.round).await;
         self.round = round + 1;
         debug!("Moved to round {}", self.round);
 
         // Cleanup the vote aggregator.
         self.aggregator.cleanup(&self.round);
+
+        // Schedule a new timer for this round.
+        // self.schedule_timer().await;
+    }
+    async fn advance_view(&mut self, view: RoundNumber) {
+        if view < self.view {
+            return;
+        }
+        self.timer.cancel(self.view).await;
+        self.view = view + 1;
+        debug!("Moved to view {}", self.view);
+
+        // Cleanup the vote aggregator.
+        // self.aggregator.cleanup(&self.round);
 
         // Schedule a new timer for this round.
         self.schedule_timer().await;
@@ -479,7 +495,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
 
         // Ensure the block proposer is the right leader for the round.
         ensure!(
-            block.author == self.leader_elector.get_leader(block.round),
+            block.author == self.leader_elector.get_leader(self.view),
             ConsensusError::WrongLeader {
                 digest,
                 leader: block.author,
@@ -534,7 +550,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // Upon booting, generate the very first block (if we are the leader).
         // Also, schedule a timer in case we don't hear from the leader.
         self.schedule_timer().await;
-        if self.name == self.leader_elector.get_leader(self.round) {
+        if self.name == self.leader_elector.get_leader(self.view) {
             self.generate_proposal(None)
                 .await
                 .expect("Failed to send the first block");
