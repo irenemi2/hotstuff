@@ -7,6 +7,6 @@
  Transaction size: 512 B
 
  Variable value: X=4
- TPS: 19941 +/- 12 tx/s
- Latency: 948 +/- 36 ms
+ TPS: 9972 +/- 4 tx/s
+ Latency: 1075 +/- 50 ms
 -----------------------------------------

@@ -170,7 +170,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     }
 
     async fn local_timeout_round(&mut self) -> ConsensusResult<()> {
-        warn!("Timeout reached for round {}", self.round);
+        warn!("Timeout reached for view {}", self.view);
         self.increase_last_voted_round(self.round);
         let timeout = Timeout::new(
             self.locked_vote1_qc.clone(),
