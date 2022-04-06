@@ -295,7 +295,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         if round < self.round {
             return;
         }
-        self.timer.cancel(self.round).await;
+        // self.timer.cancel(self.round).await;
         self.round = round + 1;
         debug!("Moved to round {}", self.round);
 
@@ -303,13 +303,13 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         self.aggregator.cleanup(&self.round);
 
         // Schedule a new timer for this round.
-        self.schedule_timer().await;
+        // self.schedule_timer().await;
     }
     async fn advance_view(&mut self, view: RoundNumber) {
         if view < self.view {
             return;
         }
-        // self.timer.cancel(self.view).await;
+        self.timer.cancel(self.view).await;
         self.view = view + 1;
         debug!("Moved to view {}", self.view);
 
@@ -317,7 +317,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         // self.aggregator.cleanup(&self.round);
 
         // Schedule a new timer for this view.
-        // self.schedule_timer().await;
+        self.schedule_timer().await;
     }
     // -- End Pacemaker --
 

@@ -8,7 +8,7 @@
     "repo": {
         "name": "hotstuff",
         "url": "https://github.com/irenemi2/hotstuff.git",
-        "branch": "pbft.extend"
+        "branch": "stable.leader"
     },
     "instances": {
         "type": "m5d.large",
