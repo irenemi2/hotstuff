@@ -18,6 +18,7 @@ pub type VoteType = u32;
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Block {
+    pub height:RoundNumber,
     pub qc: Option<QC>,
     pub tc: Option<TC>,
     pub author: PublicKey,
@@ -28,6 +29,7 @@ pub struct Block {
 
 impl Block {
     pub async fn new(
+        height:RoundNumber,
         qc: Option<QC>,
         tc: Option<TC>,
         author: PublicKey,
@@ -36,6 +38,7 @@ impl Block {
         mut signature_service: SignatureService,
     ) -> Self {
         let block = Self {
+            height,
             qc,
             tc,
             author,
@@ -106,6 +109,7 @@ impl Hash for Block {
         let mut hasher = Sha512::new();
         hasher.update(self.author.0);
         hasher.update(self.round.to_le_bytes());
+        hasher.update(self.height.to_le_bytes());
         for x in &self.payload {
             hasher.update(x);
         }
@@ -118,10 +122,11 @@ impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(
             f,
-            "{}: B({}, {}, {:?}, {:?}, {})",
+            "{}: B({}, {},{}, {:?}, {:?}, {})",
             self.digest(),
             self.author,
             self.round,
+            self.height,
             self.qc,
             self.tc,
             self.payload.iter().map(|x| x.len()).sum::<usize>(),
@@ -131,7 +136,7 @@ impl fmt::Debug for Block {
 
 impl fmt::Display for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "B{}", self.round)
+        write!(f, "B{}", self.height)
     }
 }
 

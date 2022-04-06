@@ -47,7 +47,9 @@ pub struct Core<Mempool> {
     network_channel: Sender<NetMessage>,
     commit_channel: Sender<Block>,
     round: RoundNumber,
+    height:RoundNumber,
     last_voted_round: RoundNumber,
+    last_voted_height:RoundNumber,
     locked_vote1_qc: QC,
     high_qc_vote2: QC,
     timer: Timer<RoundNumber>,
@@ -84,7 +86,9 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             commit_channel,
             core_channel,
             round: 1,
+            height:1,
             last_voted_round: 0,
+            last_voted_height:0,
             locked_vote1_qc: QC::genesis(),
             high_qc_vote2: QC::genesis(),
             timer: Timer::new(),
@@ -132,10 +136,13 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     fn increase_last_voted_round(&mut self, target: RoundNumber) {
         self.last_voted_round = max(self.last_voted_round, target);
     }
+    fn update_last_voted_height(&mut self, target: RoundNumber) {
+        self.last_voted_height = max(self.last_voted_height, target);
+    }
 
     async fn make_vote1(&mut self, block: &Block) -> Option<Vote> {
         // Check if we can vote for this block.
-        let safety_rule_1 = block.round > self.last_voted_round;
+        let safety_rule_1 = block.height > self.last_voted_height;
 
         let mut safety_rule_2 = false;
         if let Some(ref qc) = block.qc {
@@ -149,7 +156,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
         }
 
         // Ensure we won't vote for contradicting blocks.
-        self.increase_last_voted_round(block.round);
+        self.update_last_voted_height(block.height);
         // [issue #15]: Write to storage preferred_round and last_voted_round.
         Some(Vote::new(1, block.digest(), block.round, self.name, self.signature_service.clone()).await)
     }
@@ -318,7 +325,9 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
             .mempool_driver
             .get(self.parameters.max_payload_size)
             .await;
+        self.height=self.height+1;
         let block = Block::new(
+            self.height,
             qc,
             tc,
             self.name,
@@ -349,7 +358,7 @@ impl<Mempool: 'static + NodeMempool> Core<Mempool> {
     }
 
     async fn process_qc(&mut self, qc: &QC) {
-        self.advance_round(qc.round).await;
+        // self.advance_round(qc.round).await;
         self.update_high_qc(qc);
     }
 
