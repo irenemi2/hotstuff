@@ -23,7 +23,7 @@ def local(ctx):
     }
     node_params = {
         'consensus': {
-            'timeout_delay': 10_000,
+            'timeout_delay': 30_000,
             'sync_retry_delay': 10_000,
             'max_payload_size': 500,
             'min_block_delay': 0
@@ -93,28 +93,28 @@ def install(ctx):
         Bench(ctx).install()
     except BenchError as e:
         Print.error(e)
-
+#//,"ap-southeast-1","eu-central-1"]
 
 @task
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [4],
-        'rate': [5_000,20_000],
+        'nodes': [7],
+        'rate': [8_000,10_000,12_000],
         'tx_size': 512,
         'duration': 300,
-        'runs': 3,
+        'runs': 1,
     }
     node_params = {
         'consensus': {
-            'timeout_delay': 100_000,
+            'timeout_delay': 200_000,
             'sync_retry_delay': 500_000,
             'max_payload_size': 1_000,
             'min_block_delay': 100
         },
         'mempool': {
             'queue_capacity': 100_000,
-            'max_payload_size': 160_000,
+            'max_payload_size': 140_000,
             'min_block_delay': 100,
         }
     }
